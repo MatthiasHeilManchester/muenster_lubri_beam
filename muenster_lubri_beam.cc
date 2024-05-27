@@ -34,6 +34,177 @@ using namespace std;
 
 using namespace oomph;
 
+
+/////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////
+
+
+//=====================================================================
+/// Upgraded Hermite Beam Element to incorporate surface tension driven
+/// thin film flow
+//=====================================================================
+class HermiteLubriBeamElement : public virtual HermiteBeamElement
+{
+ 
+public:
+ 
+ /// Constructor: 
+ HermiteLubriBeamElement() 
+  {
+  }
+
+
+ ///  Required  # of `values' (pinned or dofs)
+ /// at node n
+ inline unsigned required_nvalue(const unsigned& n) const
+  {
+   return 2; // Initial_Nvalue;
+  }
+
+ 
+ /// Film thickness dof (local node j, type k)
+ double nodal_h_lubri(const unsigned& j, const unsigned& k) const
+  {
+   return this->node_pt(j)->value(k);
+  }
+ 
+ 
+ /// Film thickness at s
+ double interpolated_h_lubri(const Vector<double>& s)
+  {
+   // Initialise storage h_lubri
+   double h_lubri = 0.0;
+   
+   // Number of nodes
+   unsigned n_node = this->nnode();
+   
+   // Number of degrees of freedom per node
+   unsigned n_value = this->node_pt(0)->nvalue();
+   
+   // Get shape function
+   Shape psi(n_node, n_value);
+   this->shape(s, psi);
+   
+   // Sum up
+   for (unsigned n = 0; n < n_node; n++)
+    {
+     for (unsigned k = 0; k < n_value; k++)
+      {
+       h_lubri += nodal_h_lubri(n, k) * psi(n, k);
+      }
+    }
+   
+   return h_lubri;
+  }
+ 
+ /// Overwrite otput function
+ void output(std::ostream& outfile, const unsigned& n_plot)
+  {
+   // Local variables
+   Vector<double> s(1);
+   
+   // Tecplot header info
+   outfile << "ZONE I=" << n_plot << std::endl;
+   
+   // Set the number of lagrangian coordinates
+   unsigned n_lagrangian = Undeformed_beam_pt->nlagrangian();
+   
+   // Set the dimension of the global coordinates
+   unsigned n_dim = Undeformed_beam_pt->ndim();
+   
+   // Find out how many nodes there are
+   unsigned n_node = nnode();
+   
+   // Find out how many positional dofs there are
+   unsigned n_position_dofs = nnodal_position_type();
+   Vector<double> posn(n_dim);
+   
+   // # of nodes, # of positional dofs
+   Shape psi(n_node, n_position_dofs);
+
+
+   // hierher
+
+   // {
+   //  DShape& dpsidx,
+   //   DShape& d2psidx
+   //  d2shape_eulerian(const Vector<double>& s,
+   //                   Shape& psi,
+   //                   DShape& dpsidx,
+   //                   DShape& d2psidx) const;
+    
+    
+   // }
+
+   
+   // Loop over element plot points
+   for (unsigned l1 = 0; l1 < n_plot; l1++)
+    {
+     s[0] = -1.0 + l1 * 2.0 / (n_plot - 1);
+     
+     // Get shape functions
+     shape(s, psi);
+     
+     Vector<double> interpolated_xi(n_lagrangian);
+     interpolated_xi[0] = 0.0;
+     
+     // Initialise
+     double h_lubri=0.0;
+     for (unsigned i = 0; i < n_dim; i++)
+      {
+       posn[i] = 0.0;
+      }
+     
+     
+     // Calculate values
+     for (unsigned l = 0; l < n_node; l++)
+      {
+       // Loop over positional dofs
+       for (unsigned k = 0; k < n_position_dofs; k++)
+        {
+         // Loop over Lagrangian coordinate directions [xi_gen[] are the
+         // the *gen*eralised Lagrangian coordinates: node, type, direction]
+         for (unsigned i = 0; i < n_lagrangian; i++)
+          {
+           interpolated_xi[i] +=
+            raw_lagrangian_position_gen(l, k, i) * psi(l, k);
+          }
+         
+         // Loop over components of the deformed position Vector
+         for (unsigned i = 0; i < n_dim; i++)
+          {
+           posn[i] += raw_dnodal_position_gen_dt(0, l, k, i) * psi(l, k);
+          }
+         h_lubri+=nodal_h_lubri(l, k) * psi(l, k);
+        }
+      }
+     
+
+     // Beam
+     for (unsigned i = 0; i < n_dim; i++)
+      {
+       outfile << posn[i] << " ";
+      }
+     // Surface of fluid and film thickness (measured
+     // vertically upwards
+     outfile << posn[1]+h_lubri << " "
+             << h_lubri << " "
+             << std::endl;
+    }
+  }
+ 
+};
+
+
+
+/////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////
+
+
+
+ 
 //========start_of_namespace========================
 /// Namespace for physical parameters
 //==================================================
@@ -76,8 +247,8 @@ public:
  void parameter_study();
  
  /// Return pointer to the mesh
- OneDLagrangianMesh<HermiteBeamElement>* mesh_pt() 
-  {return dynamic_cast<OneDLagrangianMesh<HermiteBeamElement>*>
+ OneDLagrangianMesh<HermiteLubriBeamElement>* mesh_pt() 
+  {return dynamic_cast<OneDLagrangianMesh<HermiteLubriBeamElement>*>
     (Problem::mesh_pt());}
 
  /// No actions need to be performed after a solve
@@ -118,8 +289,8 @@ ElasticBeamProblem::ElasticBeamProblem(const unsigned &n_elem,
  // Undef_beam_pt to specify the initial (Eulerian) position of the
  // nodes.
  Problem::mesh_pt() = 
-  new OneDLagrangianMesh<HermiteBeamElement>(n_elem,length,Undef_beam_pt,
-                                             Problem::time_stepper_pt());
+  new OneDLagrangianMesh<HermiteLubriBeamElement>(n_elem,length,Undef_beam_pt,
+                                                  Problem::time_stepper_pt());
 
  // Set the boundary conditions: Each end of the beam is fixed in space
  // Loop over the boundaries (ends of the beam)
@@ -140,6 +311,22 @@ ElasticBeamProblem::ElasticBeamProblem(const unsigned &n_elem,
    mesh_pt()->boundary_node_pt(b,0)->pin_position(1,1);
 
   }
+
+
+ // For now: Pin all lubri dofs and assign values
+ // consistnt with constant film thickness
+ double h_initial=0.1; // hierher global namespace
+ unsigned nnod=Problem::mesh_pt()->nnode();
+ for (unsigned j=0;j<nnod;j++)
+  {
+   // Value
+   Problem::mesh_pt()->node_pt(j)->pin(0);
+   Problem::mesh_pt()->node_pt(j)->set_value(0,h_initial);
+
+   // Slope
+   Problem::mesh_pt()->node_pt(j)->pin(1);
+   Problem::mesh_pt()->node_pt(j)->set_value(1,0.0);
+  }
  
  //Find number of elements in the mesh
  unsigned n_element = mesh_pt()->nelement();
@@ -148,8 +335,8 @@ ElasticBeamProblem::ElasticBeamProblem(const unsigned &n_elem,
  for(unsigned e=0;e<n_element;e++)
   {
    // Upcast to the specific element type
-   HermiteBeamElement *elem_pt = 
-    dynamic_cast<HermiteBeamElement*>(mesh_pt()->element_pt(e));
+   HermiteLubriBeamElement *elem_pt = 
+    dynamic_cast<HermiteLubriBeamElement*>(mesh_pt()->element_pt(e));
    
    // Set physical parameters for each element:
    elem_pt->sigma0_pt() = &Global_Physical_Variables::Sigma0;
