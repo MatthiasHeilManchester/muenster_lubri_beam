@@ -123,28 +123,22 @@ public:
    // # of nodes, # of positional dofs
    Shape psi(n_node, n_position_dofs);
 
-
-   // hierher
-
-   // {
-   //  DShape& dpsidx,
-   //   DShape& d2psidx
-   //  d2shape_eulerian(const Vector<double>& s,
-   //                   Shape& psi,
-   //                   DShape& dpsidx,
-   //                   DShape& d2psidx) const;
-    
-    
-   // }
-
+   // # of nodes, # of positional dofs, # of lagrangian coords (for deriv)
+   DShape dpsidxi(n_node, n_position_dofs, n_lagrangian);
    
+   // # of nodes, # of positional dofs, # of derivs)
+   DShape d2psidxi(n_node, n_position_dofs, n_lagrangian);
+      
    // Loop over element plot points
    for (unsigned l1 = 0; l1 < n_plot; l1++)
     {
      s[0] = -1.0 + l1 * 2.0 / (n_plot - 1);
      
+     // Call the derivatives of the shape functions w.r.t. Lagrangian coords
+     double J = d2shape_lagrangian(s, psi, dpsidxi, d2psidxi);
+
      // Get shape functions
-     shape(s, psi);
+     //shape(s, psi);
      
      Vector<double> interpolated_xi(n_lagrangian);
      interpolated_xi[0] = 0.0;
