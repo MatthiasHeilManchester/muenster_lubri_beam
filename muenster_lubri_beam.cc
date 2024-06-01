@@ -69,6 +69,14 @@ public:
    return this->node_pt(j)->value(k);
   }
  
+ /// Film thickness dof (local node j, type k) at previous time level t
+ /// (t==: present)
+ double nodal_h_lubri(const unsigned& t, const unsigned& j, 
+                      const unsigned& k) const
+  {
+   return this->node_pt(j)->value(t,k);
+  }
+ 
  
  /// Film thickness at s
  double interpolated_h_lubri(const Vector<double>& s)
@@ -136,15 +144,11 @@ public:
      
      // Call the derivatives of the shape functions w.r.t. Lagrangian coords
      double J = d2shape_lagrangian(s, psi, dpsidxi, d2psidxi);
-
-     // Get shape functions
-     //shape(s, psi);
-     
-     Vector<double> interpolated_xi(n_lagrangian);
-     interpolated_xi[0] = 0.0;
      
      // Initialise
      double h_lubri=0.0;
+     double dh_dt=0.0;
+     double curv=0.0;
      for (unsigned i = 0; i < n_dim; i++)
       {
        posn[i] = 0.0;
@@ -154,23 +158,26 @@ public:
      // Calculate values
      for (unsigned l = 0; l < n_node; l++)
       {
-       // Loop over positional dofs
+       // Loop over dof types
        for (unsigned k = 0; k < n_position_dofs; k++)
         {
-         // Loop over Lagrangian coordinate directions [xi_gen[] are the
-         // the *gen*eralised Lagrangian coordinates: node, type, direction]
-         for (unsigned i = 0; i < n_lagrangian; i++)
-          {
-           interpolated_xi[i] +=
-            raw_lagrangian_position_gen(l, k, i) * psi(l, k);
-          }
-         
          // Loop over components of the deformed position Vector
          for (unsigned i = 0; i < n_dim; i++)
           {
            posn[i] += raw_dnodal_position_gen_dt(0, l, k, i) * psi(l, k);
           }
          h_lubri+=nodal_h_lubri(l, k) * psi(l, k);
+         curv+=nodal_h_lubri(l, k) * d2psidxi(l,k,0);
+
+         // Number of timsteps (past & present)
+         const unsigned n_time =node_pt(l)->time_stepper_pt()->ntstorage();
+         
+         // Add the contributions to the time derivative
+         for (unsigned t = 0; t < n_time; t++)
+          {
+           dh_dt+=node_pt(l)->time_stepper_pt()->weight(1, t)*
+            nodal_h_lubri(t,l,k);
+          }
         }
       }
      
@@ -184,9 +191,158 @@ public:
      // vertically upwards
      outfile << posn[1]+h_lubri << " "
              << h_lubri << " "
+             << curv << " "
+             << dh_dt << " "
+             << J << " "
              << std::endl;
     }
   }
+
+ 
+ /// hierher
+ void fill_in_contribution_to_residuals(Vector<double>& residuals)
+  {
+   fill_in_contribution_to_residuals_beam(residuals);
+   fill_in_contribution_to_residuals_lubri(residuals);
+  }
+
+ /// Get the Jacobian and residuals. hierher overloaded yet againi
+ virtual void fill_in_contribution_to_jacobian(Vector<double>& residuals,
+                                               DenseMatrix<double>& jacobian)
+  {
+   // Call FD versin in base class
+   SolidFiniteElement::fill_in_contribution_to_jacobian(residuals, jacobian);
+  }
+ 
+protected:
+
+ 
+ /// hierher 
+ void fill_in_contribution_to_residuals_lubri(Vector<double>& residuals)
+  {
+
+   // hierher
+   // // Set up the initial conditions, if an IC pointer has been set
+   // if (Solid_ic_pt != 0)
+   // {
+   //   fill_in_residuals_for_solid_ic(residuals);
+   //   return;
+   // }
+   
+   // Set the number of lagrangian coordinates
+   const unsigned n_lagrangian = Undeformed_beam_pt->nlagrangian();
+   
+   // Find out how many nodes there are
+   const unsigned n_node = nnode();
+   
+   // Find out how many positional dofs there are
+   const unsigned n_position_type = nnodal_position_type();
+   
+   // Integer to store the local equation number
+   int local_eqn = 0;
+   
+   
+   // Set up memory for the shape functions:
+   
+   // # of nodes, # of positional dofs
+   Shape psi(n_node, n_position_type);
+   
+   // # of nodes, # of positional dofs, # of lagrangian coords (for deriv)
+   DShape dpsidxi(n_node, n_position_type, n_lagrangian);
+   
+   // # of nodes, # of positional dofs, # of derivs)
+   DShape d2psidxi(n_node, n_position_type, n_lagrangian);
+   
+   // Set # of integration points
+   const unsigned n_intpt = integral_pt()->nweight();
+   
+   // Get Physical Variables from Element
+
+   // hierher
+   double maybe_inverse_capillary=1.0;
+   
+   // Loop over the integration points
+    for (unsigned ipt = 0; ipt < n_intpt; ipt++)
+    {
+      // Get the integral weight
+      double w = integral_pt()->weight(ipt);
+
+      // Call the derivatives of the shape functions w.r.t. Lagrangian coords
+      double J = d2shape_lagrangian_at_knot(ipt, psi, dpsidxi, d2psidxi);
+
+     // Initialise
+     double h_lubri=0.0;
+     double dh_lubri_dxi=0.0;
+     double dh_dt=0.0;
+     double curv=0.0;
+     
+     // Calculate values
+     for (unsigned l = 0; l < n_node; l++)
+      {
+       // Loop over dof types
+       for (unsigned k = 0; k < n_position_type; k++)
+        {
+         h_lubri+=nodal_h_lubri(l, k) * psi(l, k);
+
+         
+         // slope (take change into arclength into account
+         dh_lubri_dxi+=nodal_h_lubri(l, k)*dpsidxi(l,k,0);
+
+         // hierher make nonlinear and incorporate beam shape
+         curv+=nodal_h_lubri(l, k)*d2psidxi(l,k,0);
+
+         // Number of timsteps (past & present)
+         const unsigned n_time =node_pt(l)->time_stepper_pt()->ntstorage();
+         
+         // Add the contributions to the time derivative
+         for (unsigned t = 0; t < n_time; t++)
+          {
+           dh_dt+=node_pt(l)->time_stepper_pt()->weight(1,t)*nodal_h_lubri(t,l,k);
+          }
+        }
+      }
+     
+     // Premultiply the weights and the Jacobian
+     double W = w * J;
+     
+     
+     // Loop over nodes
+     for (unsigned j=0;j<n_node;j++)
+      {
+       // Loop over dof types
+       for (unsigned k=0;k<n_position_type;k++)
+        {
+         local_eqn=nodal_local_eqn(j,k);
+         // If it's not a boundary condition
+         if (local_eqn >= 0)
+          {
+           residuals[local_eqn] +=
+            (dh_dt*psi(j,k)+maybe_inverse_capillary*curv*
+             (h_lubri*h_lubri*dh_lubri_dxi*dpsidxi(j,k,0)+
+              h_lubri*h_lubri*h_lubri/3.0*d2psidxi(j,k,0)))*W;
+           
+            // (dh_dt*psi(j,k)+maybe_inverse_capillary*curv*d2psidxi(j,k,0))*W;
+            
+           // std::cout << "added: " << dh_dt << " "
+           //           << psi(j,k) << " " 
+           //           << maybe_inverse_capillary << " "
+           //           << curv << " "
+           //           << d2psidxi(j,k,0) << " " 
+           //           << W << " "
+           //           << " final: " << (dh_dt*psi(j,k)+maybe_inverse_capillary*curv*d2psidxi(j,k,0))*W
+           //           << std::endl;
+          }
+        }
+      }
+     
+    } // End of loop over the integration points
+  }
+ 
+
+
+
+
+
  
 };
 
@@ -226,6 +382,7 @@ namespace Global_Physical_Variables
 
 } // end of namespace
 
+
 //======start_of_problem_class==========================================
 /// Beam problem object
 //======================================================================
@@ -251,6 +408,31 @@ public:
  /// No actions need to be performed before a solve
  void actions_before_newton_solve() {}
 
+
+ // hierher
+ void set_initial_h_lubri()
+  {
+    // For now: Pin all lubri dofs and assign values
+   // consistnt with constant film thickness
+   double h_initial=0.5; 
+   unsigned nnod=Problem::mesh_pt()->nnode();
+   for (unsigned j=0;j<nnod;j++)
+    {
+     
+     double x=double(j)/double(nnod-1);
+     double h=h_initial*(2.0-cos(2.0*MathematicalConstants::Pi*x));
+     // Value
+     Problem::mesh_pt()->node_pt(j)->set_value(0,h);
+     
+     // Slope
+     unsigned nel=mesh_pt()->nelement();
+     double dh_ds=0.5*h_initial*2.0*MathematicalConstants::Pi/double(nel)*
+      sin(2.0*MathematicalConstants::Pi*x);
+    Problem::mesh_pt()->node_pt(j)->set_value(1,dh_ds);
+  }
+ 
+}
+ 
 private:
 
  /// Pointer to the node whose displacement is documented
@@ -304,21 +486,32 @@ ElasticBeamProblem::ElasticBeamProblem(const unsigned &n_elem,
    // Clamp
    mesh_pt()->boundary_node_pt(b,0)->pin_position(1,1);
 
+
+
+   // hierher global parameter
+   bool pin_lubri=true;
+   if (pin_lubri)
+    {
+     mesh_pt()->boundary_node_pt(b,0)->pin(0);
+    }
+   // Symmetry/no flux:
+   else
+    {
+     mesh_pt()->boundary_node_pt(b,0)->pin(1);
+    }
   }
 
 
  // For now: Pin all lubri dofs and assign values
  // consistnt with constant film thickness
- double h_initial=0.1; // hierher global namespace
+ double h_initial=0.5; // hierher global namespace
  unsigned nnod=Problem::mesh_pt()->nnode();
  for (unsigned j=0;j<nnod;j++)
   {
    // Value
-   Problem::mesh_pt()->node_pt(j)->pin(0);
    Problem::mesh_pt()->node_pt(j)->set_value(0,h_initial);
 
    // Slope
-   Problem::mesh_pt()->node_pt(j)->pin(1);
    Problem::mesh_pt()->node_pt(j)->set_value(1,0.0);
   }
  
@@ -365,6 +558,13 @@ ElasticBeamProblem::ElasticBeamProblem(const unsigned &n_elem,
 } // end of constructor
 
 
+
+
+
+
+
+
+
 //=======start_of_parameter_study==========================================
 /// Solver loop to perform parameter study
 //=========================================================================
@@ -406,6 +606,16 @@ void ElasticBeamProblem::parameter_study()
  // Counter for output
  unsigned counter=0;
  
+ // Document the initial condition
+ sprintf(filename,"RESLT/beam%i.dat",counter);
+ counter++;
+ file.open(filename);
+ mesh_pt()->output(file,5);
+ file.close();
+
+
+ // linear_solver_pt()=new FD_LU;
+    
  // STAGE 1: INFLATE, WITH GIVEN POSITIVE PRESTRESS
  //------------------------------------------------
  {
@@ -425,7 +635,18 @@ void ElasticBeamProblem::parameter_study()
                <<  Global_Physical_Variables::Sigma0
                << std::endl;
 
-   
+
+    // DenseDoubleMatrix A;
+    // DoubleVector b;
+    // get_fd_jacobian(b,A);
+    // A.sparse_indexed_output("FD_jac.dat");
+    
+    // get_jacobian(b,A);
+    // A.sparse_indexed_output("jac.dat");
+
+    // describe_dofs();
+    //exit(0);
+    
     // Solve the system
     steady_newton_solve();
     
@@ -524,7 +745,17 @@ void ElasticBeamProblem::parameter_study()
  //----------------------------
  {
   // Set timestep
-  double dt=1.0; 
+  double dt=0.1; // 1.0; 
+
+
+  // hierher
+  set_initial_h_lubri();
+
+  // Document the solution
+  sprintf(filename,"RESLT/beam_init_aux%i.dat",counter);
+  file.open(filename);
+  mesh_pt()->output(file,5);
+  file.close();
   
   // Assign impulsive start
   assign_initial_values_impulsive(dt); // hierher try bypassing
@@ -532,7 +763,7 @@ void ElasticBeamProblem::parameter_study()
   Global_Physical_Variables::P_ext -= pext_increment;
 
 
-  unsigned nstep=1000;
+  unsigned nstep=10000; // 1000;
   for (unsigned i=0;i<nstep;i++)
    {
     // Solve
