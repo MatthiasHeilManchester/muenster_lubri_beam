@@ -167,7 +167,11 @@ public:
            posn[i] += raw_dnodal_position_gen_dt(0, l, k, i) * psi(l, k);
           }
          h_lubri+=nodal_h_lubri(l, k) * psi(l, k);
-         curv+=nodal_h_lubri(l, k) * d2psidxi(l,k,0);
+
+         // curvature of free surface, taking substrate (beam) curvature into
+         // account hierher computed using (i) linearity (ii) ignoring
+         // horizontal beam displacemen!
+         curv+=(nodal_h_lubri(l, k)+raw_nodal_position_gen(l,k,1))*d2psidxi(l,k,0);
 
          // Number of timsteps (past & present)
          const unsigned n_time =node_pt(l)->time_stepper_pt()->ntstorage();
@@ -185,15 +189,15 @@ public:
      // Beam
      for (unsigned i = 0; i < n_dim; i++)
       {
-       outfile << posn[i] << " ";
+       outfile << posn[i] << " "; // 1,2
       }
      // Surface of fluid and film thickness (measured
      // vertically upwards
-     outfile << posn[1]+h_lubri << " "
-             << h_lubri << " "
-             << curv << " "
-             << dh_dt << " "
-             << J << " "
+     outfile << posn[1]+h_lubri << " " // 3
+             << h_lubri << " "         // 4
+             << curv << " "            // 5
+             << dh_dt << " "           // 6
+             << J << " "               // 7
              << std::endl;
     }
   }
@@ -212,6 +216,63 @@ public:
   {
    // Call FD versin in base class
    SolidFiniteElement::fill_in_contribution_to_jacobian(residuals, jacobian);
+  }
+
+ 
+ /// Overloaded version of the load vector function to incorporate lubrication
+ /// pressure. : Pass number of integration point,
+ /// Lagr. and Eulerian coordinate and normal vector and return the load
+ /// vector.
+ void load_vector(const unsigned& ipt,
+                  const Vector<double>& xi,
+                  const Vector<double>& x,
+                  const Vector<double>& N,
+                  Vector<double>& load)
+  {
+   // Get external pressure
+   Load_vector_fct_pt(xi, x, N, load);
+   
+   // Add lubri traction
+   //-------------------
+   
+   // Set the number of lagrangian coordinates
+   const unsigned n_lagrangian = Undeformed_beam_pt->nlagrangian();
+   
+   // Find out how many nodes there are
+   const unsigned n_node = nnode();
+   
+   // Find out how many positional dofs there are
+   const unsigned n_position_type = nnodal_position_type();
+   
+   // # of nodes, # of positional dofs
+   Shape psi(n_node, n_position_type);
+   
+   // # of nodes, # of positional dofs, # of lagrangian coords (for deriv)
+   DShape dpsidxi(n_node, n_position_type, n_lagrangian);
+   
+   // # of nodes, # of positional dofs, # of derivs)
+   DShape d2psidxi(n_node, n_position_type, n_lagrangian);
+   
+   // Call the derivatives of the shape functions w.r.t. Lagrangian coords
+   d2shape_lagrangian_at_knot(ipt, psi, dpsidxi, d2psidxi);
+   
+   // Get curvature
+   double curv=0.0;
+   for (unsigned l = 0; l < n_node; l++)
+    {
+     // Loop over dof types
+     for (unsigned k = 0; k < n_position_type; k++)
+      {
+       // curvature of free surface, taking substrate (beam) curvature into
+       // account hierher (i) linear (ii) ignore horizontal beam displacement!
+       curv+=(nodal_h_lubri(l, k)+raw_nodal_position_gen(l,k,1))*d2psidxi(l,k,0);
+      }
+    }
+   
+   double q_fsi=1.0e-4; // 1.0e-6; //1.0e-8;
+   load[0]-=q_fsi*curv*N[0];
+   load[1]-=q_fsi*curv*N[1];
+   
   }
  
 protected:
@@ -259,7 +320,7 @@ protected:
    // Get Physical Variables from Element
 
    // hierher
-   double maybe_inverse_capillary=1.0;
+   double maybe_inverse_capillary=1.0; // 10.0;
    
    // Loop over the integration points
     for (unsigned ipt = 0; ipt < n_intpt; ipt++)
@@ -288,8 +349,9 @@ protected:
          // slope (take change into arclength into account
          dh_lubri_dxi+=nodal_h_lubri(l, k)*dpsidxi(l,k,0);
 
-         // hierher make nonlinear and incorporate beam shape
-         curv+=nodal_h_lubri(l, k)*d2psidxi(l,k,0);
+         // curvature of free surface, taking substrate (beam) curvature into
+         // account hierher (i) linear (ii) ignore horizontal beam displacement!
+         curv+=(nodal_h_lubri(l, k)+raw_nodal_position_gen(l,k,1))*d2psidxi(l,k,0);
 
          // Number of timsteps (past & present)
          const unsigned n_time =node_pt(l)->time_stepper_pt()->ntstorage();
@@ -409,24 +471,64 @@ public:
  void actions_before_newton_solve() {}
 
 
- // hierher
- void set_initial_h_lubri()
+ // Pin lubri (and reassign equation numbers)
+ void pin_lubri()
   {
-    // For now: Pin all lubri dofs and assign values
-   // consistnt with constant film thickness
-   double h_initial=0.5; 
    unsigned nnod=Problem::mesh_pt()->nnode();
    for (unsigned j=0;j<nnod;j++)
     {
-     
+     mesh_pt()->node_pt(j)->pin(0);
+     mesh_pt()->node_pt(j)->pin(1);
+    }
+   oomph_info << "Pinned lubri dofs: # of dofs = "
+              << assign_eqn_numbers() << std::endl;
+  }
+
+ // Unpin lubri dofs (and reassign equation numbers)
+ void unpin_lubri(const bool& no_flux_bc)
+  {
+   unsigned nnod=Problem::mesh_pt()->nnode();
+   for (unsigned j=0;j<nnod;j++)
+    {
+     mesh_pt()->node_pt(j)->unpin(0);
+     mesh_pt()->node_pt(j)->unpin(1);
+    }
+
+   // Now flux; height adjusts
+   if (no_flux_bc)
+    {
+     mesh_pt()->boundary_node_pt(0,0)->pin(1);
+     mesh_pt()->boundary_node_pt(1,0)->pin(1);
+    }
+   // Pinned ends; fluid drains out
+   else
+    {
+     mesh_pt()->boundary_node_pt(0,0)->pin(0);
+     mesh_pt()->boundary_node_pt(1,0)->pin(0);
+    }
+   
+   oomph_info << "Unpinned lubri dofs: # of dofs = "
+              << assign_eqn_numbers() << std::endl;
+  }
+
+ 
+
+ // hierher
+ void set_initial_h_lubri(const double& h_mean, const double& h_amplitude)
+  {
+    // For now: Pin all lubri dofs and assign values
+   // consistnt with constant film thickness
+   unsigned nnod=Problem::mesh_pt()->nnode();
+   for (unsigned j=0;j<nnod;j++)
+    {
      double x=double(j)/double(nnod-1);
-     double h=h_initial*(2.0-cos(2.0*MathematicalConstants::Pi*x));
+     double h=h_mean+h_amplitude*(1.0-cos(2.0*MathematicalConstants::Pi*x));
      // Value
      Problem::mesh_pt()->node_pt(j)->set_value(0,h);
      
      // Slope
      unsigned nel=mesh_pt()->nelement();
-     double dh_ds=0.5*h_initial*2.0*MathematicalConstants::Pi/double(nel)*
+     double dh_ds=0.5*h_amplitude*2.0*MathematicalConstants::Pi/double(nel)*
       sin(2.0*MathematicalConstants::Pi*x);
     Problem::mesh_pt()->node_pt(j)->set_value(1,dh_ds);
   }
@@ -489,7 +591,7 @@ ElasticBeamProblem::ElasticBeamProblem(const unsigned &n_elem,
 
 
    // hierher global parameter
-   bool pin_lubri=true;
+   bool pin_lubri=false;
    if (pin_lubri)
     {
      mesh_pt()->boundary_node_pt(b,0)->pin(0);
@@ -504,7 +606,7 @@ ElasticBeamProblem::ElasticBeamProblem(const unsigned &n_elem,
 
  // For now: Pin all lubri dofs and assign values
  // consistnt with constant film thickness
- double h_initial=0.5; // hierher global namespace
+ double h_initial=1.5; // hierher big value to move it out of the way
  unsigned nnod=Problem::mesh_pt()->nnode();
  for (unsigned j=0;j<nnod;j++)
   {
@@ -614,6 +716,10 @@ void ElasticBeamProblem::parameter_study()
  file.close();
 
 
+ // Pin lubri dofs during initial steady beam calculations (otherwise
+ // free surface can fly away when using no flux bcs
+ pin_lubri();
+
  // linear_solver_pt()=new FD_LU;
     
  // STAGE 1: INFLATE, WITH GIVEN POSITIVE PRESTRESS
@@ -630,7 +736,7 @@ void ElasticBeamProblem::parameter_study()
     // Increment pressure
     Global_Physical_Variables::P_ext += pext_increment;
     
-    oomph_info << "Solving for p_ext sigma_0 = "
+    oomph_info << "STAGE 1: Solving for p_ext sigma_0 = "
                << Global_Physical_Variables::P_ext << " " 
                <<  Global_Physical_Variables::Sigma0
                << std::endl;
@@ -679,7 +785,7 @@ void ElasticBeamProblem::parameter_study()
     // Decrement pre-stress
     Global_Physical_Variables::Sigma0-=d_sigma;
 
-    oomph_info << "Solving for p_ext sigma_0 = "
+    oomph_info << "STAGE 2: Solving for p_ext sigma_0 = "
                << Global_Physical_Variables::P_ext << " " 
                <<  Global_Physical_Variables::Sigma0
                << std::endl;
@@ -717,7 +823,7 @@ void ElasticBeamProblem::parameter_study()
     // Increment pressure
     Global_Physical_Variables::P_ext -= pext_increment;
     
-    oomph_info << "Solving for p_ext sigma_0 = "
+    oomph_info << "STAGE 3: solving for p_ext sigma_0 = "
                << Global_Physical_Variables::P_ext << " " 
                <<  Global_Physical_Variables::Sigma0
                << std::endl;
@@ -745,11 +851,17 @@ void ElasticBeamProblem::parameter_study()
  //----------------------------
  {
   // Set timestep
-  double dt=0.1; // 1.0; 
+  double dt=1.0; 
 
 
-  // hierher
-  set_initial_h_lubri();
+  // Set initial profile
+  double h_mean=1.5;
+  double h_amplitude=0.1;
+  set_initial_h_lubri(h_mean,h_amplitude);
+
+  // Unpin lubri dofs during initial steady beam calculationsc
+  bool no_flux_bc=true;
+  unpin_lubri(no_flux_bc);
 
   // Document the solution
   sprintf(filename,"RESLT/beam_init_aux%i.dat",counter);
@@ -760,14 +872,14 @@ void ElasticBeamProblem::parameter_study()
   // Assign impulsive start
   assign_initial_values_impulsive(dt); // hierher try bypassing
 
-  Global_Physical_Variables::P_ext -= pext_increment;
+  // hierher Global_Physical_Variables::P_ext -= pext_increment;
 
 
   unsigned nstep=10000; // 1000;
   for (unsigned i=0;i<nstep;i++)
    {
     // Solve
-    oomph_info << "Doing unsteady solve for t = "
+    oomph_info << "STAGE 4: Doing unsteady solve for t = "
                << time_stepper_pt()->time_pt()->time()
                << std::endl;
     unsteady_newton_solve(dt);
@@ -805,7 +917,7 @@ int main()
 
  // Number of elements (choose an even number if you want the control point 
  // to be located at the centre of the beam)
- unsigned n_element = 10;
+ unsigned n_element = 20;
 
  // Construst the problem
  ElasticBeamProblem problem(n_element,L);
