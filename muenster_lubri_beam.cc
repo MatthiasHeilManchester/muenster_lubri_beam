@@ -270,8 +270,8 @@ public:
     }
    
    double q_fsi=1.0e-4; // 1.0e-6; //1.0e-8;
-   load[0]-=q_fsi*curv*N[0];
-   load[1]-=q_fsi*curv*N[1];
+   load[0]+=q_fsi*curv*N[0];
+   load[1]+=q_fsi*curv*N[1];
    
   }
  
@@ -430,6 +430,9 @@ namespace Global_Physical_Variables
 
  /// Pressure load
  double P_ext=0.0;
+
+ /// FSI parameter
+ double Q_fsi=1.0e-4;
 
  /// Square of timescale ratio (i.e. non-dimensional density)  
  /// -- 1.0 for default value of scaling factor
@@ -776,7 +779,7 @@ void ElasticBeamProblem::parameter_study()
  //----------------------------------
  {
   unsigned nstep=10;
-  double d_sigma=
+  double d_sigma=200.0*
    2.0*Global_Physical_Variables::Sigma0/double(nstep-1);
   
   // Loop over parameter increments
@@ -847,6 +850,9 @@ void ElasticBeamProblem::parameter_study()
  }
 
 
+
+ exit(0);
+ 
  // STAGE 4: TIMESTEP THE THING
  //----------------------------
  {
@@ -910,10 +916,10 @@ int main()
 {
 
  // Set the non-dimensional thickness 
- Global_Physical_Variables::H=0.05; 
+ Global_Physical_Variables::H=0.001; 
  
- // Set the length of domain
- double L = 10.0;
+ // Set the length of domain // hierher get rid of this algotether
+ double L = 1.0;
 
  // Number of elements (choose an even number if you want the control point 
  // to be located at the centre of the beam)
