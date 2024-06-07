@@ -148,6 +148,7 @@ public:
      // Initialise
      double h_lubri=0.0;
      double dh_dt=0.0;
+     double dh_lubri_dxi=0.0;
      double curv=0.0;
      for (unsigned i = 0; i < n_dim; i++)
       {
@@ -167,6 +168,7 @@ public:
            posn[i] += raw_dnodal_position_gen_dt(0, l, k, i) * psi(l, k);
           }
          h_lubri+=nodal_h_lubri(l, k) * psi(l, k);
+         dh_lubri_dxi+=nodal_h_lubri(l,k)*dpsidxi(l,k,0);
          curv+=nodal_h_lubri(l, k) * d2psidxi(l,k,0);
 
          // Number of timsteps (past & present)
@@ -191,6 +193,7 @@ public:
      // vertically upwards
      outfile << posn[1]+h_lubri << " "
              << h_lubri << " "
+             << dh_lubri_dxi << " "
              << curv << " "
              << dh_dt << " "
              << J << " "
