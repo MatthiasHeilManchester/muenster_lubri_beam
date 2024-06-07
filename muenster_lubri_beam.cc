@@ -50,7 +50,7 @@ class HermiteLubriBeamElement : public virtual HermiteBeamElement
 public:
  
  /// Constructor: 
- HermiteLubriBeamElement() 
+ HermiteLubriBeamElement() : Q_pt(0)
   {
   }
 
@@ -173,7 +173,8 @@ public:
          // curvature of free surface, taking substrate (beam) curvature into
          // account hierher computed using (i) linearity (ii) ignoring
          // horizontal beam displacemen!
-         curv+=(nodal_h_lubri(l, k)+raw_nodal_position_gen(l,k,1))*d2psidxi(l,k,0);
+         curv+=(nodal_h_lubri(l, k)+raw_nodal_position_gen(l,k,1))*
+          d2psidxi(l,k,0);
 
          // Number of timsteps (past & present)
          const unsigned n_time =node_pt(l)->time_stepper_pt()->ntstorage();
@@ -205,6 +206,32 @@ public:
     }
   }
 
+
+ /// Pointer to FSI parameter (const version)
+ double* q_pt() const
+  {
+   return Q_pt;
+  }
+ 
+ /// Pointer to FSI parameter (read/write version)
+ double*& q_pt()
+  {
+   return Q_pt;
+  }
+ 
+ /// FSI parameter 
+ double q() const
+  {
+   if (Q_pt==0)
+    {
+     return 0.0;
+    }
+   
+   return *Q_pt;
+  }
+
+
+ 
  
  /// hierher
  void fill_in_contribution_to_residuals(Vector<double>& residuals)
@@ -272,7 +299,7 @@ public:
       }
     }
    
-   double q_fsi=1.0e-4; // 1.0e-6; //1.0e-8;
+   double q_fsi=q(); // 1.0e-4; // 1.0e-6; //1.0e-8;
    load[0]+=q_fsi*curv*N[0];
    load[1]+=q_fsi*curv*N[1];
    
@@ -280,7 +307,6 @@ public:
  
 protected:
 
- 
  /// hierher 
  void fill_in_contribution_to_residuals_lubri(Vector<double>& residuals)
   {
@@ -354,7 +380,8 @@ protected:
 
          // curvature of free surface, taking substrate (beam) curvature into
          // account hierher (i) linear (ii) ignore horizontal beam displacement!
-         curv+=(nodal_h_lubri(l, k)+raw_nodal_position_gen(l,k,1))*d2psidxi(l,k,0);
+         curv+=(nodal_h_lubri(l, k)+raw_nodal_position_gen(l,k,1))*
+          d2psidxi(l,k,0);
 
          // Number of timsteps (past & present)
          const unsigned n_time =node_pt(l)->time_stepper_pt()->ntstorage();
@@ -362,7 +389,8 @@ protected:
          // Add the contributions to the time derivative
          for (unsigned t = 0; t < n_time; t++)
           {
-           dh_dt+=node_pt(l)->time_stepper_pt()->weight(1,t)*nodal_h_lubri(t,l,k);
+           dh_dt+=node_pt(l)->time_stepper_pt()->weight(1,t)*
+            nodal_h_lubri(t,l,k);
           }
         }
       }
@@ -404,7 +432,10 @@ protected:
   }
  
 
+private:
 
+ /// Pointer to FSI parameter
+ double* Q_pt;
 
 
 
@@ -435,7 +466,7 @@ namespace Global_Physical_Variables
  double P_ext=0.0;
 
  /// FSI parameter
- double Q_fsi=1.0e-4;
+ double Q_fsi=0.0;
 
  /// Square of timescale ratio (i.e. non-dimensional density)  
  /// -- 1.0 for default value of scaling factor
@@ -612,7 +643,7 @@ ElasticBeamProblem::ElasticBeamProblem(const unsigned &n_elem,
 
  // For now: Pin all lubri dofs and assign values
  // consistnt with constant film thickness
- double h_initial=1.5; // hierher big value to move it out of the way
+ double h_initial=0.1; // hierher big value to move it out of the way
  unsigned nnod=Problem::mesh_pt()->nnode();
  for (unsigned j=0;j<nnod;j++)
   {
@@ -636,6 +667,7 @@ ElasticBeamProblem::ElasticBeamProblem(const unsigned &n_elem,
    // Set physical parameters for each element:
    elem_pt->sigma0_pt() = &Global_Physical_Variables::Sigma0;
    elem_pt->h_pt() = &Global_Physical_Variables::H;
+   elem_pt->q_pt() = &Global_Physical_Variables::Q_fsi;
 
    // Set the load Vector for each element
    elem_pt->load_vector_fct_pt() = &Global_Physical_Variables::load;
@@ -682,14 +714,13 @@ void ElasticBeamProblem::parameter_study()
  Problem::Max_residuals = 1.0e10;
  
  // Set the increments in control parameters
- double pext_increment = -0.00001;
+ double pext_increment = -1.0e-7; // -0.00001;
  
  // Set initial values for control parameters 
  Global_Physical_Variables::P_ext = 0.0 - pext_increment;
  
  // Set the 2nd Piola Kirchhoff prestress
- Global_Physical_Variables::Sigma0=0.01;
-  
+ Global_Physical_Variables::Sigma0=0.001;
  
  // Create label for output
  DocInfo doc_info;
@@ -727,10 +758,15 @@ void ElasticBeamProblem::parameter_study()
  pin_lubri();
 
  // linear_solver_pt()=new FD_LU;
+
+ 
     
  // STAGE 1: INFLATE, WITH GIVEN POSITIVE PRESTRESS
  //------------------------------------------------
  {
+
+  // Switch off FSI
+  Global_Physical_Variables::Q_fsi=0.0;
   
   // Set initial values for control parameters 
   Global_Physical_Variables::P_ext = 0.0 - pext_increment;
@@ -744,7 +780,7 @@ void ElasticBeamProblem::parameter_study()
     
     oomph_info << "STAGE 1: Solving for p_ext sigma_0 = "
                << Global_Physical_Variables::P_ext << " " 
-               <<  Global_Physical_Variables::Sigma0
+               << Global_Physical_Variables::Sigma0
                << std::endl;
 
 
@@ -771,9 +807,9 @@ void ElasticBeamProblem::parameter_study()
     
     // Write trace file
     trace << Global_Physical_Variables::P_ext  << " "   
-             <<  Global_Physical_Variables::Sigma0 << " "
-            << abs(Doc_node_pt->x(1))
-            << std::endl;
+          << Global_Physical_Variables::Sigma0 << " "
+          << abs(Doc_node_pt->x(1))
+          << std::endl;
    }
  }
  
@@ -782,11 +818,11 @@ void ElasticBeamProblem::parameter_study()
  //----------------------------------
  {
   unsigned nstep=10;
-  double d_sigma=200.0*
+  double d_sigma=
    2.0*Global_Physical_Variables::Sigma0/double(nstep-1);
   
   // Loop over parameter increments
-  for(unsigned i=1;i<=nstep;i++)
+  for(unsigned i=1;i<nstep;i++)
    {
     // Decrement pre-stress
     Global_Physical_Variables::Sigma0-=d_sigma;
@@ -854,18 +890,20 @@ void ElasticBeamProblem::parameter_study()
 
 
 
- exit(0);
+ //exit(0);
  
- // STAGE 4: TIMESTEP THE THING
- //----------------------------
+ // STAGE 4: TIMESTEP THE THING WITH FSI
+ //-------------------------------------
  {
   // Set timestep
-  double dt=1.0; 
+  double dt=0.01; // 1.0; 
 
-
+  // Switch on FSI
+  Global_Physical_Variables::Q_fsi=1.0e-4;
+  
   // Set initial profile
-  double h_mean=1.5;
-  double h_amplitude=0.1;
+  double h_mean=0.05; // 0.1;
+  double h_amplitude=0.05;
   set_initial_h_lubri(h_mean,h_amplitude);
 
   // Unpin lubri dofs during initial steady beam calculationsc
@@ -926,7 +964,7 @@ int main()
 
  // Number of elements (choose an even number if you want the control point 
  // to be located at the centre of the beam)
- unsigned n_element = 20;
+ unsigned n_element = 50; // 20;
 
  // Construst the problem
  ElasticBeamProblem problem(n_element,L);
