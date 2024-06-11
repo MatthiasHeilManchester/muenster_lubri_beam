@@ -244,7 +244,7 @@ public:
  virtual void fill_in_contribution_to_jacobian(Vector<double>& residuals,
                                                DenseMatrix<double>& jacobian)
   {
-   // Call FD versin in base class
+   // Call FD version in base class
    SolidFiniteElement::fill_in_contribution_to_jacobian(residuals, jacobian);
   }
 
@@ -304,7 +304,66 @@ public:
    load[1]+=q_fsi*curv*N[1];
    
   }
+
+ /// Volume (per unit depgth) of fluid in the film
+ void get_fluid_volume(double& v_fluid)
+  {
+   // Initialise
+   v_fluid = 0.0;
+      
+   // Set the number of lagrangian coordinates
+   unsigned n_lagrangian = Undeformed_beam_pt->nlagrangian();
+   
+   // Find out how many nodes there are
+   unsigned n_node = nnode();
+   
+   // Find out how many positional dofs there are
+   unsigned n_position_dofs = nnodal_position_type();
+   
+   // Set up memory for the shape functions:
+   // # of nodes, # of positional dofs
+   Shape psi(n_node, n_position_dofs);
+   
+   // # of nodes, # of positional dofs, # of lagrangian coords (for deriv)
+   DShape dpsidxi(n_node, n_position_dofs, n_lagrangian);
+   
+   // # of nodes, # of positional dofs, # of derivs)
+   DShape d2psidxi(n_node, n_position_dofs, n_lagrangian);
+   
+   // Set # of integration points
+   unsigned n_intpt = integral_pt()->nweight();
+   
+   // Loop over the integration points
+   for (unsigned ipt = 0; ipt < n_intpt; ipt++)
+    {
+     // Get the integral weight
+     double w = integral_pt()->weight(ipt);
+     
+     // Call the derivatives of the shape functions w.r.t. Lagrangian coords
+     double J = d2shape_lagrangian_at_knot(ipt, psi, dpsidxi, d2psidxi);
+     
+     // Premultiply the weights and the Jacobian
+     double W = w * J;
+     
+     
+     // Sum 'em
+     double h_lubri=0.0;
+     for (unsigned l = 0; l < n_node; l++)
+      {
+        // Loop over positional dofs
+        for (unsigned k = 0; k < n_position_dofs; k++)
+        {
+         h_lubri+=nodal_h_lubri(l, k) * psi(l, k);
+        }
+      }
+
+      // Add contribution
+     v_fluid+=h_lubri*W;
+     
+    } // End of loop over the integration points
+  }
  
+
 protected:
 
  /// hierher 
@@ -571,9 +630,71 @@ public:
   }
  
 }
+
+
+ /// Output stuff
+ void doc_solution()
+  {
+   // Output file stream used for writing results
+   ofstream file;
+   
+   // String used for the filename
+   char filename[100]; 
+   
+   // Shape of beam and free surface
+   sprintf(filename,"%s/beam%i.dat",
+           Doc_info.directory().c_str(),
+           Doc_info.number());
+   file.open(filename);
+   mesh_pt()->output(file,5);
+   file.close();
+
+   // Sum up energies and fluid volume
+   unsigned nel=mesh_pt()->nelement();
+   double kinetic_energy=0.0;
+   double strain_energy=0.0;
+   double v_lubri=0.0;
+   for (unsigned e=0;e<nel;e++)
+    {
+     HermiteLubriBeamElement* el_pt=
+      dynamic_cast<HermiteLubriBeamElement*>(
+       mesh_pt()->element_pt(e));
+     double el_strain_energy=0.0;
+     double el_kin_energy=0.0;
+     el_pt->get_energy(el_strain_energy,el_kin_energy);
+     strain_energy+=el_strain_energy;
+     kinetic_energy+=el_kin_energy;
+     double el_v_lubri=0.0;
+     el_pt->get_fluid_volume(el_v_lubri);
+     v_lubri+=el_v_lubri;
+    }
+
+    // Write trace file
+   Trace_file << Doc_info.number() << " "  // 1 
+              << time_pt()->time() << " "  // 2
+              << Global_Physical_Variables::P_ext  << " "  // 3
+              << Global_Physical_Variables::Sigma0 << " "  // 4
+              << Doc_node_pt->x(1) << " " // 5
+              << Doc_node_pt->value(0) << " " // 6
+              << kinetic_energy <<" " // 7
+              << strain_energy <<" "  // 8
+              << v_lubri << " "   // 9 
+              << std::endl;
+   
+   // Bump
+   Doc_info.number()++;
+  }
+
+ 
  
 private:
 
+ /// Label for output
+ DocInfo Doc_info;
+
+ /// Trace file
+ ofstream Trace_file;
+ 
  /// Pointer to the node whose displacement is documented
  Node* Doc_node_pt;
 
@@ -641,9 +762,8 @@ ElasticBeamProblem::ElasticBeamProblem(const unsigned &n_elem,
   }
 
 
- // For now: Pin all lubri dofs and assign values
- // consistnt with constant film thickness
- double h_initial=0.1; // hierher big value to move it out of the way
+ // Assign uniform initial film thickness
+ double h_initial=0.1; 
  unsigned nnod=Problem::mesh_pt()->nnode();
  for (unsigned j=0;j<nnod;j++)
   {
@@ -722,35 +842,20 @@ void ElasticBeamProblem::parameter_study()
  // Set the 2nd Piola Kirchhoff prestress
  Global_Physical_Variables::Sigma0=0.001;
  
- // Create label for output
- DocInfo doc_info;
  
  // Set output directory -- this function checks if the output
  // directory exists and issues a warning if it doesn't.
- doc_info.set_directory("RESLT");
+ Doc_info.set_directory("RESLT");
  
  // Open a trace file
- ofstream trace("RESLT/trace_beam.dat");
- 
- // Write a header for the trace file
- trace <<  "VARIABLES=\"p_e_x_t\",\"sigma_0\""
-       <<  ", \"d\"" << std::endl;
- 
- // Output file stream used for writing results
- ofstream file;
- 
- // String used for the filename
- char filename[100]; 
+ Trace_file.open("RESLT/trace_beam.dat");
 
- // Counter for output
- unsigned counter=0;
+
+ // hierher
  
- // Document the initial condition
- sprintf(filename,"RESLT/beam%i.dat",counter);
- counter++;
- file.open(filename);
- mesh_pt()->output(file,5);
- file.close();
+ // // Write a header for the trace file
+ // Trace_file <<  "VARIABLES=\"p_e_x_t\",\"sigma_0\""
+ //            <<  ", \"d\"" << std::endl;
 
 
  // Pin lubri dofs during initial steady beam calculations (otherwise
@@ -759,6 +864,8 @@ void ElasticBeamProblem::parameter_study()
 
  // linear_solver_pt()=new FD_LU;
 
+ // Doc initial condition/guess
+ doc_solution();
  
     
  // STAGE 1: INFLATE, WITH GIVEN POSITIVE PRESTRESS
@@ -799,17 +906,9 @@ void ElasticBeamProblem::parameter_study()
     steady_newton_solve();
     
     // Document the solution
-    sprintf(filename,"RESLT/beam%i.dat",counter);
-    counter++;
-    file.open(filename);
-    mesh_pt()->output(file,5);
-    file.close();
+    doc_solution();
+
     
-    // Write trace file
-    trace << Global_Physical_Variables::P_ext  << " "   
-          << Global_Physical_Variables::Sigma0 << " "
-          << abs(Doc_node_pt->x(1))
-          << std::endl;
    }
  }
  
@@ -836,17 +935,7 @@ void ElasticBeamProblem::parameter_study()
     steady_newton_solve();
     
     // Document the solution
-    sprintf(filename,"RESLT/beam%i.dat",counter);
-    counter++;
-    file.open(filename);
-    mesh_pt()->output(file,5);
-    file.close();
-    
-    // Write trace file
-    trace << Global_Physical_Variables::P_ext  << " "   
-          <<  Global_Physical_Variables::Sigma0 << " "
-          << abs(Doc_node_pt->x(1))
-          << std::endl;
+    doc_solution();
     
    }
   
@@ -874,17 +963,8 @@ void ElasticBeamProblem::parameter_study()
     steady_newton_solve();
     
     // Document the solution
-    sprintf(filename,"RESLT/beam%i.dat",counter);
-    counter++;
-    file.open(filename);
-    mesh_pt()->output(file,5);
-    file.close();
-    
-    // Write trace file
-    trace << Global_Physical_Variables::P_ext  << " "   
-          <<  Global_Physical_Variables::Sigma0 << " "
-          << abs(Doc_node_pt->x(1))
-          << std::endl;
+    doc_solution();
+
    }
  }
 
@@ -911,17 +991,10 @@ void ElasticBeamProblem::parameter_study()
   unpin_lubri(no_flux_bc);
 
   // Document the solution
-  sprintf(filename,"RESLT/beam_init_aux%i.dat",counter);
-  file.open(filename);
-  mesh_pt()->output(file,5);
-  file.close();
+  doc_solution();
   
   // Assign impulsive start
   assign_initial_values_impulsive(dt); // hierher try bypassing
-
-  // hierher Global_Physical_Variables::P_ext -= pext_increment;
-
-
   unsigned nstep=10000; // 1000;
   for (unsigned i=0;i<nstep;i++)
    {
@@ -932,18 +1005,9 @@ void ElasticBeamProblem::parameter_study()
     unsteady_newton_solve(dt);
     
     // Document the solution
-    sprintf(filename,"RESLT/beam%i.dat",counter);
-    counter++;
-    file.open(filename);
-    mesh_pt()->output(file,5);
-    file.close();
-    
-    // Write trace file
-    trace << Global_Physical_Variables::P_ext  << " "   
-          <<  Global_Physical_Variables::Sigma0 << " "
-          << abs(Doc_node_pt->x(1))
-          << std::endl;
-    
+    doc_solution();
+
+        
    }
  }
 
