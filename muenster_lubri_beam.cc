@@ -50,7 +50,7 @@ class HermiteLubriBeamElement : public virtual HermiteBeamElement
 public:
  
  /// Constructor: 
- HermiteLubriBeamElement() : Q_pt(0)
+ HermiteLubriBeamElement() : Q_pt(0), Scaled_inverse_capillary_pt(0)
   {
   }
 
@@ -231,6 +231,32 @@ public:
   }
 
 
+ /// Pointer to scaled inverse capillary number (const version)
+ double* scaled_inverse_capillary_pt() const
+  {
+   return Scaled_inverse_capillary_pt;
+  }
+ 
+
+ /// Pointer to scaled inverse capillary number (read/write)
+ double* scaled_inverse_capillary_pt()
+  {
+   return Scaled_inverse_capillary_pt;
+  }
+ 
+ 
+ /// Scaled inverse capillary number 
+ double scaled_inverse_capillary() const
+  {
+   if (Scaled_inverse_capillary_pt==0)
+    {
+     return 0.0;
+    }
+   
+   return *Scaled_inverse_capillary_pt;
+  }
+
+
  
  
  /// hierher
@@ -405,10 +431,10 @@ protected:
    // Set # of integration points
    const unsigned n_intpt = integral_pt()->nweight();
    
-   // Get Physical Variables from Element
+   // Get parameters from Element
 
-   // hierher
-   double maybe_inverse_capillary=1.0; // 10.0;
+   // Cache inverse capillary number
+   double inverse_capillary=scaled_inverse_capillary();
    
    // Loop over the integration points
     for (unsigned ipt = 0; ipt < n_intpt; ipt++)
@@ -469,20 +495,9 @@ protected:
          if (local_eqn >= 0)
           {
            residuals[local_eqn] +=
-            (dh_dt*psi(j,k)+maybe_inverse_capillary*curv*
+            (dh_dt*psi(j,k)+inverse_capillary*curv*
              (h_lubri*h_lubri*dh_lubri_dxi*dpsidxi(j,k,0)+
               h_lubri*h_lubri*h_lubri/3.0*d2psidxi(j,k,0)))*W;
-           
-            // (dh_dt*psi(j,k)+maybe_inverse_capillary*curv*d2psidxi(j,k,0))*W;
-            
-           // std::cout << "added: " << dh_dt << " "
-           //           << psi(j,k) << " " 
-           //           << maybe_inverse_capillary << " "
-           //           << curv << " "
-           //           << d2psidxi(j,k,0) << " " 
-           //           << W << " "
-           //           << " final: " << (dh_dt*psi(j,k)+maybe_inverse_capillary*curv*d2psidxi(j,k,0))*W
-           //           << std::endl;
           }
         }
       }
@@ -497,7 +512,9 @@ private:
  double* Q_pt;
 
 
-
+ /// Pointer to scaled inverse capillary number
+ double* Scaled_inverse_capillary_pt;
+ 
  
 };
 
@@ -526,6 +543,9 @@ namespace Global_Physical_Variables
 
  /// FSI parameter
  double Q_fsi=0.0;
+
+ /// Target FSI parameter
+ double Q_fsi_target=1.0e-4;
 
  /// Square of timescale ratio (i.e. non-dimensional density)  
  /// -- 1.0 for default value of scaling factor
@@ -763,16 +783,9 @@ ElasticBeamProblem::ElasticBeamProblem(const unsigned &n_elem,
 
 
  // Assign uniform initial film thickness
- double h_initial=0.1; 
- unsigned nnod=Problem::mesh_pt()->nnode();
- for (unsigned j=0;j<nnod;j++)
-  {
-   // Value
-   Problem::mesh_pt()->node_pt(j)->set_value(0,h_initial);
-
-   // Slope
-   Problem::mesh_pt()->node_pt(j)->set_value(1,0.0);
-  }
+ double h_mean=0.1;
+ double h_amplitude=0.0;
+ set_initial_h_lubri(h_mean,h_amplitude);
  
  //Find number of elements in the mesh
  unsigned n_element = mesh_pt()->nelement();
@@ -979,10 +992,15 @@ void ElasticBeamProblem::parameter_study()
   double dt=0.01; // 1.0; 
 
   // Switch on FSI
-  Global_Physical_Variables::Q_fsi=1.0e-4;
+  Global_Physical_Variables::Q_fsi=
+   Global_Physical_Variables::Q_fsi_target;
   
+  // Set pressure during time-dependent run (this is in addition to
+  // any pressure from the fluid)
+  Global_Physical_Variables::P_ext = -100.0*pext_increment;
+    
   // Set initial profile
-  double h_mean=0.05; // 0.1;
+  double h_mean=0.05;
   double h_amplitude=0.05;
   set_initial_h_lubri(h_mean,h_amplitude);
 
@@ -1001,6 +1019,9 @@ void ElasticBeamProblem::parameter_study()
     // Solve
     oomph_info << "STAGE 4: Doing unsteady solve for t = "
                << time_stepper_pt()->time_pt()->time()
+               << " for p_ext sigma_0 = "
+               << Global_Physical_Variables::P_ext << " " 
+               <<  Global_Physical_Variables::Sigma0
                << std::endl;
     unsteady_newton_solve(dt);
     
@@ -1015,11 +1036,27 @@ void ElasticBeamProblem::parameter_study()
 } // end of parameter study
 
 //========start_of_main================================================
-/// Driver for beam (string under tension) test problem 
+/// Driver 
 //=====================================================================
-int main()
+int main(int argc, char **argv)
 {
 
+ // Store command line arguments
+ CommandLineArgs::setup(argc,argv);
+
+
+ // Target FSI parameter
+ CommandLineArgs::specify_command_line_flag(
+  "--q_fsi_target",
+  &Global_Physical_Variables::Q_fsi_target);
+
+ // Parse command line
+ CommandLineArgs::parse_and_assign(); 
+ 
+ // Doc what has actually been specified on the command line
+ CommandLineArgs::doc_specified_flags();
+ 
+ 
  // Set the non-dimensional thickness 
  Global_Physical_Variables::H=0.001; 
  
