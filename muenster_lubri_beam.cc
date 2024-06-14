@@ -34,6 +34,88 @@ using namespace std;
 
 using namespace oomph;
 
+ 
+//========start_of_namespace========================
+/// Namespace for physical parameters
+//==================================================
+namespace Global_Physical_Variables
+{
+ /// Non-dimensional beam thickness
+ double H=0.05; // hierher check where else it's assigned
+
+ /// 2nd Piola Kirchhoff pre-stress
+ double Sigma0=0.0;
+
+ /// Pressure load
+ double P_ext=0.0;
+
+ /// Pressure during time-dependent simulation
+ double P_ext_during_time_dependent_run=0.0;
+
+ /// Time at which pressure is switched off durinig time-dependent
+ /// simulatino
+ double T_switch_off_pressure=2.0;
+ 
+ /// FSI parameter
+ double Q_fsi=0.0;
+
+ /// Target FSI parameter
+ double Q_fsi_target=1.0e-4;
+
+
+ /// Scaled inverse capillary number
+ double Scaled_inverse_capillary_number=0.0;
+
+ /// Square of timescale ratio (i.e. non-dimensional density)  
+ /// -- 1.0 for default value of scaling factor
+ double Lambda_sq=1.0;
+
+ /// Load function: Apply a constant external pressure to the beam
+ void load(const Vector<double>& xi, const Vector<double> &x,
+           const Vector<double>& N, Vector<double>& load)
+ {
+  for(unsigned i=0;i<2;i++) {load[i] = -P_ext*N[i];}
+ }
+
+ /// Mean film thickness for manufactured solution
+ double H_lubri_mean_manufactured=0.1;
+
+ /// Peak deviation of film thickness for manufactured solution
+ double H_lubri_hat_manufactured=-0.05;
+
+ /// Timescale for evolution of manufactured solution
+ double T_lubri_manufactured=1.0;
+
+ /// Lubri source term for manufactured solution
+
+ /// Manufactured solution for lubri
+ double h_lubri_manufactured(const double& t, const double& x)
+ {
+  return H_lubri_mean_manufactured+
+   H_lubri_hat_manufactured*
+   cos(2.0*MathematicalConstants::Pi*x)*
+   exp(-t/T_lubri_manufactured);
+ }
+
+ /// source term for manufactured solution
+ double source_manufactured_solution(const double& t, const double& x)
+ {
+  return -H_lubri_hat_manufactured * cos(0.6283185308e1 * x) /
+  T_lubri_manufactured * exp(-t / T_lubri_manufactured) +
+  0.7441506405e3 * Scaled_inverse_capillary_number *
+  pow(H_lubri_mean_manufactured + H_lubri_hat_manufactured *
+  cos(0.6283185308e1 * x) * exp(-t / T_lubri_manufactured), 0.2e1) *
+  H_lubri_hat_manufactured * H_lubri_hat_manufactured *
+  cos(0.6283185308e1 * x) * pow(exp(-t / T_lubri_manufactured), 0.2e1)
+  * sin(0.6283185308e1 * x) + 0.2480502135e3 *
+  Scaled_inverse_capillary_number * pow(H_lubri_mean_manufactured +
+  H_lubri_hat_manufactured * cos(0.6283185308e1 * x) * exp(-t /
+  T_lubri_manufactured), 0.3e1) * H_lubri_hat_manufactured *
+  sin(0.6283185308e1 * x) * exp(-t / T_lubri_manufactured);
+ }
+ 
+} // end of namespace
+
 
 /////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////
@@ -50,7 +132,9 @@ class HermiteLubriBeamElement : public virtual HermiteBeamElement
 public:
  
  /// Constructor: 
- HermiteLubriBeamElement() : Q_pt(0), Scaled_inverse_capillary_pt(0)
+ HermiteLubriBeamElement() :
+  Q_pt(0),
+  Scaled_inverse_capillary_pt(&Global_Physical_Variables::Scaled_inverse_capillary_number) // hierher
   {
   }
 
@@ -187,8 +271,22 @@ public:
           }
         }
       }
-     
 
+
+     // hierher
+     double (*Manufactured_soln_fct_pt)(const double& t, const double& x);
+     Manufactured_soln_fct_pt=
+      &Global_Physical_Variables::h_lubri_manufactured;
+
+      
+     // Manufactured solution
+     double t=node_pt(0)->time_stepper_pt()->time_pt()->time(); 
+     double h_lubri_manufactured=0.0;
+     if (Manufactured_soln_fct_pt!=0)
+      {
+       h_lubri_manufactured=Manufactured_soln_fct_pt(t,posn[0]);
+      }
+      
      // Beam
      for (unsigned i = 0; i < n_dim; i++)
       {
@@ -202,6 +300,7 @@ public:
              << curv << " "            // 6
              << dh_dt << " "           // 7
              << J << " "               // 8
+             << h_lubri_manufactured << " " // 9
              << std::endl;
     }
   }
@@ -435,6 +534,8 @@ protected:
 
    // Cache inverse capillary number
    double inverse_capillary=scaled_inverse_capillary();
+
+   double t=node_pt(0)->time_stepper_pt()->time_pt()->time();
    
    // Loop over the integration points
     for (unsigned ipt = 0; ipt < n_intpt; ipt++)
@@ -450,6 +551,7 @@ protected:
      double dh_lubri_dxi=0.0;
      double dh_dt=0.0;
      double curv=0.0;
+     double x=0.0;
      
      // Calculate values
      for (unsigned l = 0; l < n_node; l++)
@@ -457,8 +559,9 @@ protected:
        // Loop over dof types
        for (unsigned k = 0; k < n_position_type; k++)
         {
+         x+=raw_dnodal_position_gen_dt(0, l, k, 0) * psi(l, k);
+          
          h_lubri+=nodal_h_lubri(l, k) * psi(l, k);
-
          
          // slope (take change into arclength into account
          dh_lubri_dxi+=nodal_h_lubri(l, k)*dpsidxi(l,k,0);
@@ -479,6 +582,11 @@ protected:
           }
         }
       }
+
+
+     // Evaluate source function
+     double source=Global_Physical_Variables::source_manufactured_solution(t,x);
+     //std::cout << "source " << source << std::endl;
      
      // Premultiply the weights and the Jacobian
      double W = w * J;
@@ -495,7 +603,7 @@ protected:
          if (local_eqn >= 0)
           {
            residuals[local_eqn] +=
-            (dh_dt*psi(j,k)+inverse_capillary*curv*
+            ((dh_dt-source)*psi(j,k)+inverse_capillary*curv*
              (h_lubri*h_lubri*dh_lubri_dxi*dpsidxi(j,k,0)+
               h_lubri*h_lubri*h_lubri/3.0*d2psidxi(j,k,0)))*W;
           }
@@ -525,40 +633,6 @@ private:
 /////////////////////////////////////////////////////////////////
 
 
-
- 
-//========start_of_namespace========================
-/// Namespace for physical parameters
-//==================================================
-namespace Global_Physical_Variables
-{
- /// Non-dimensional thickness
- double H=0.05;
-
- /// 2nd Piola Kirchhoff pre-stress
- double Sigma0=0.0;
-
- /// Pressure load
- double P_ext=0.0;
-
- /// FSI parameter
- double Q_fsi=0.0;
-
- /// Target FSI parameter
- double Q_fsi_target=1.0e-4;
-
- /// Square of timescale ratio (i.e. non-dimensional density)  
- /// -- 1.0 for default value of scaling factor
- double Lambda_sq=1.0;
-
- /// Load function: Apply a constant external pressure to the beam
- void load(const Vector<double>& xi, const Vector<double> &x,
-           const Vector<double>& N, Vector<double>& load)
- {
-  for(unsigned i=0;i<2;i++) {load[i] = -P_ext*N[i];}
- }
-
-} // end of namespace
 
 
 //======start_of_problem_class==========================================
@@ -994,10 +1068,14 @@ void ElasticBeamProblem::parameter_study()
   // Switch on FSI
   Global_Physical_Variables::Q_fsi=
    Global_Physical_Variables::Q_fsi_target;
-  
+
+  // hierher read in from command line
+  Global_Physical_Variables::P_ext_during_time_dependent_run=-1.0e-5; 
+
   // Set pressure during time-dependent run (this is in addition to
   // any pressure from the fluid)
-  Global_Physical_Variables::P_ext = -100.0*pext_increment;
+  Global_Physical_Variables::P_ext =
+   Global_Physical_Variables::P_ext_during_time_dependent_run; 
     
   // Set initial profile
   double h_mean=0.05;
@@ -1013,7 +1091,7 @@ void ElasticBeamProblem::parameter_study()
   
   // Assign impulsive start
   assign_initial_values_impulsive(dt); // hierher try bypassing
-  unsigned nstep=10000; // 1000;
+  unsigned nstep=10000; // 1000; // hierher
   for (unsigned i=0;i<nstep;i++)
    {
     // Solve
@@ -1024,10 +1102,20 @@ void ElasticBeamProblem::parameter_study()
                <<  Global_Physical_Variables::Sigma0
                << std::endl;
     unsteady_newton_solve(dt);
+
+
     
     // Document the solution
     doc_solution();
 
+    // Switch off pressure
+    if ((Global_Physical_Variables::P_ext!=0.0)&&
+        (time_stepper_pt()->time_pt()->time()>
+         Global_Physical_Variables::T_switch_off_pressure))
+     {
+      oomph_info << "Switching off pressure\n";
+      Global_Physical_Variables::P_ext=0.0;
+     }
         
    }
  }
