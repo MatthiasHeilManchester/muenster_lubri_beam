@@ -64,7 +64,7 @@ namespace Global_Physical_Variables
 
 
  /// Scaled inverse capillary number
- double Scaled_inverse_capillary_number=0.0;
+ double Scaled_inverse_capillary_number=1.0; // hierher set properly
 
  /// Square of timescale ratio (i.e. non-dimensional density)  
  /// -- 1.0 for default value of scaling factor
@@ -94,24 +94,36 @@ namespace Global_Physical_Variables
   return H_lubri_mean_manufactured+
    H_lubri_hat_manufactured*
    cos(2.0*MathematicalConstants::Pi*x)*
-   exp(-t/T_lubri_manufactured);
+   exp(-t/T_lubri_manufactured)*(1.0+t*t);
  }
 
  /// source term for manufactured solution
  double source_manufactured_solution(const double& t, const double& x)
  {
-  return -H_lubri_hat_manufactured * cos(0.6283185308e1 * x) /
-  T_lubri_manufactured * exp(-t / T_lubri_manufactured) +
-  0.7441506405e3 * Scaled_inverse_capillary_number *
-  pow(H_lubri_mean_manufactured + H_lubri_hat_manufactured *
-  cos(0.6283185308e1 * x) * exp(-t / T_lubri_manufactured), 0.2e1) *
-  H_lubri_hat_manufactured * H_lubri_hat_manufactured *
-  cos(0.6283185308e1 * x) * pow(exp(-t / T_lubri_manufactured), 0.2e1)
-  * sin(0.6283185308e1 * x) + 0.2480502135e3 *
+
+  double source= 0.2e1 * H_lubri_hat_manufactured * cos(0.6283185308e1
+  * x) * t * exp(-t / T_lubri_manufactured) - H_lubri_hat_manufactured
+  * cos(0.6283185308e1 * x) * (t * t + 0.1e1) / T_lubri_manufactured *
+  exp(-t / T_lubri_manufactured) - 0.1558545457e4 *
   Scaled_inverse_capillary_number * pow(H_lubri_mean_manufactured +
-  H_lubri_hat_manufactured * cos(0.6283185308e1 * x) * exp(-t /
+  H_lubri_hat_manufactured * cos(0.6283185308e1 * x) * (t * t + 0.1e1)
+  * exp(-t / T_lubri_manufactured), 0.2e1) * H_lubri_hat_manufactured
+  * H_lubri_hat_manufactured * pow(sin(0.6283185308e1 * x), 0.2e1) *
+  pow(t * t + 0.1e1, 0.2e1) * pow(exp(-t / T_lubri_manufactured),
+  0.2e1) + 0.5195151523e3 * Scaled_inverse_capillary_number *
+  pow(H_lubri_mean_manufactured + H_lubri_hat_manufactured *
+  cos(0.6283185308e1 * x) * (t * t + 0.1e1) * exp(-t /
   T_lubri_manufactured), 0.3e1) * H_lubri_hat_manufactured *
-  sin(0.6283185308e1 * x) * exp(-t / T_lubri_manufactured);
+  cos(0.6283185308e1 * x) * (t * t + 0.1e1) * exp(-t /
+  T_lubri_manufactured);
+
+
+  //source = 0.0;
+  
+  return source;
+
+
+  
  }
  
 } // end of namespace
@@ -134,7 +146,7 @@ public:
  /// Constructor: 
  HermiteLubriBeamElement() :
   Q_pt(0),
-  Scaled_inverse_capillary_pt(&Global_Physical_Variables::Scaled_inverse_capillary_number) // hierher
+  Scaled_inverse_capillary_pt(&Global_Physical_Variables::Scaled_inverse_capillary_number) // hierher set properly
   {
   }
 
@@ -301,6 +313,7 @@ public:
              << dh_dt << " "           // 7
              << J << " "               // 8
              << h_lubri_manufactured << " " // 9
+             << Global_Physical_Variables::source_manufactured_solution(t,posn[0]) << " " // 10  hierher
              << std::endl;
     }
   }
@@ -648,6 +661,10 @@ public:
  
  /// Conduct a parameter study
  void parameter_study();
+
+ /// Validate lubrication theory
+ void validate_lubri();
+
  
  /// Return pointer to the mesh
  OneDLagrangianMesh<HermiteLubriBeamElement>* mesh_pt() 
@@ -772,7 +789,9 @@ public:
               << Doc_node_pt->value(0) << " " // 6
               << kinetic_energy <<" " // 7
               << strain_energy <<" "  // 8
-              << v_lubri << " "   // 9 
+              << v_lubri << " "   // 9
+              << Global_Physical_Variables::h_lubri_manufactured(time_pt()->time(),
+                                                                 Doc_node_pt->x(0)) << " " // 10
               << std::endl;
    
    // Bump
@@ -1102,12 +1121,12 @@ void ElasticBeamProblem::parameter_study()
                <<  Global_Physical_Variables::Sigma0
                << std::endl;
     unsteady_newton_solve(dt);
-
-
+    
+    
     
     // Document the solution
     doc_solution();
-
+    
     // Switch off pressure
     if ((Global_Physical_Variables::P_ext!=0.0)&&
         (time_stepper_pt()->time_pt()->time()>
@@ -1116,12 +1135,80 @@ void ElasticBeamProblem::parameter_study()
       oomph_info << "Switching off pressure\n";
       Global_Physical_Variables::P_ext=0.0;
      }
-        
+    
    }
  }
 
  
 } // end of parameter study
+
+
+
+//=======start_of_validate_lubri===========================================
+/// Validate lubrication theory
+//=========================================================================
+void ElasticBeamProblem::validate_lubri()
+{
+ 
+ // Set initial values for control parameters 
+ Global_Physical_Variables::P_ext = 0.0;
+ 
+ // Set the 2nd Piola Kirchhoff prestress
+ Global_Physical_Variables::Sigma0=0.001;
+ 
+ 
+ // Switch off FSI
+ Global_Physical_Variables::Q_fsi=0.0;
+
+  
+ // Set output directory -- this function checks if the output
+ // directory exists and issues a warning if it doesn't.
+ Doc_info.set_directory("RESLT");
+ 
+ // Open a trace file
+ Trace_file.open("RESLT/trace_beam.dat");
+
+
+ // hierher
+ 
+ // // Write a header for the trace file
+ // Trace_file <<  "VARIABLES=\"p_e_x_t\",\"sigma_0\""
+ //            <<  ", \"d\"" << std::endl;
+
+ 
+ // Timestep the thing
+ 
+ // Set timestep
+ double dt=0.001;
+ 
+ // Set initial profile
+ double h_mean=0.05;
+ double h_amplitude=0.05;
+ set_initial_h_lubri(h_mean,h_amplitude);
+ 
+ // Unpin lubri dofs 
+ bool no_flux_bc=true;
+ unpin_lubri(no_flux_bc);
+ 
+ // Document the solution
+ doc_solution();
+ 
+ // Assign impulsive start
+ assign_initial_values_impulsive(dt); // hierher try bypassing
+ unsigned nstep=10000; // 1000; // hierher
+ for (unsigned i=0;i<nstep;i++)
+  {
+   // Solve
+   oomph_info << "VALIDATION: Doing unsteady solve for t = "
+              << time_stepper_pt()->time_pt()->time()
+              << std::endl;
+   unsteady_newton_solve(dt);
+   
+   // Document the solution
+   doc_solution();   
+  }
+
+} // end of validation
 
 //========start_of_main================================================
 /// Driver 
@@ -1158,21 +1245,15 @@ int main(int argc, char **argv)
  // Construst the problem
  ElasticBeamProblem problem(n_element,L);
 
- // Check that we're ready to go:
- cout << "\n\n\nProblem self-test ";
- if (problem.self_test()==0) 
-  {
-   cout << "passed: Problem can be solved." << std::endl;
-  }
- else 
-  {
-   throw OomphLibError("Self test failed",
-                       OOMPH_CURRENT_FUNCTION,
-                       OOMPH_EXCEPTION_LOCATION);
-  }
+ // Validate lubrication theory
+ problem.validate_lubri();
+
+ exit(0);
+
 
  // Conduct parameter study
  problem.parameter_study();
 
 } // end of main
+
 
