@@ -36,43 +36,26 @@ using namespace oomph;
 
  
 //========start_of_namespace========================
-/// Namespace for physical parameters
+/// Namespace for parameters
 //==================================================
-namespace Global_Physical_Variables
+namespace Global_Parameters
 {
 
-
- bool hierher_linearise=false;
+ // Beam parameters
+ //-----------------
 
  /// Non-dimensional beam thickness
- double H=0.05; // hierher check where else it's assigned
+ double H_beam=0.001;
 
  /// 2nd Piola Kirchhoff pre-stress
  double Sigma0=0.0;
 
- /// Pressure load
- double P_ext=0.0;
-
- /// Pressure during time-dependent simulation
- double P_ext_during_time_dependent_run=0.0;
-
- /// Time at which pressure is switched off durinig time-dependent
- /// simulatino
- double T_switch_off_pressure=2.0;
- 
- /// FSI parameter
- double Q_fsi=0.0;
-
- /// Target FSI parameter
- double Q_fsi_target=1.0e-4;
-
-
- /// Scaled inverse capillary number
- double Scaled_inverse_capillary_number=1.0; // hierher set properly
-
  /// Square of timescale ratio (i.e. non-dimensional density)  
  /// -- 1.0 for default value of scaling factor
  double Lambda_sq=1.0;
+
+ /// Pressure load
+ double P_ext=0.0;
 
  /// Load function: Apply a constant external pressure to the beam
  void load(const Vector<double>& xi, const Vector<double> &x,
@@ -81,6 +64,58 @@ namespace Global_Physical_Variables
   for(unsigned i=0;i<2;i++) {load[i] = -P_ext*N[i];}
  }
 
+ /// Pressure during time-dependent simulation
+ double P_ext_during_time_dependent_run=0.0;
+
+ /// Time at which pressure is switched off during time-dependent
+ /// simulation
+ double T_switch_off_pressure=2.0;
+
+
+ // FSI parameters
+ //---------------
+ 
+ /// FSI parameter (to be pointed to by element)
+ double Q_fsi=0.0;
+
+ /// Target FSI parameter for actual FSI run
+ double Q_fsi_target=1.0e-4;
+
+
+
+ // Lubrication theory parameters
+ //------------------------------
+
+ /// Scaled inverse capillary number
+ double Scaled_inverse_capillary_number=1.0; // hierher set properly
+
+
+ // Runtime parameters
+ //-------------------
+
+ // Output directory
+ std::string Dir_name="RESLT";
+
+ // Number of timesteps
+ unsigned Ntstep=1000;
+
+ // Max. time for timestepping
+ double T_max=1.0;
+
+ 
+
+ 
+
+ 
+
+ // Parameters for validation of lubrication theory
+ //-------------------------------------------------
+
+ /// Validate solution of linearised equations?
+ bool Linearised_validation=false;
+
+ // hierher unify this with initial film profile
+ 
  /// Mean film thickness for manufactured solution
  double H_lubri_mean_manufactured=0.1;
 
@@ -90,9 +125,7 @@ namespace Global_Physical_Variables
  /// Timescale for evolution of manufactured solution
  double T_lubri_manufactured=1.0;
 
- /// Lubri source term for manufactured solution
-
- /// Manufactured solution for lubri
+ /// Manufactured solution for validation of lubrication theory
  double h_lubri_manufactured(const double& t, const double& x)
  {
   return H_lubri_mean_manufactured+
@@ -101,12 +134,12 @@ namespace Global_Physical_Variables
    exp(-t/T_lubri_manufactured)*t*t;
  }
 
- /// source term for manufactured solution
+ /// Source term for manufactured solution
  double source_manufactured_solution(const double& t, const double& x)
  {
   double source=0.0;
 
-  if (Global_Physical_Variables::hierher_linearise)
+  if (Global_Parameters::Linearised_validation)
    {
     source = 0.2e1 * H_lubri_hat_manufactured * cos(0.6283185308e1 *
     x) * t * exp(-t / T_lubri_manufactured) - H_lubri_hat_manufactured
@@ -131,20 +164,15 @@ namespace Global_Physical_Variables
     cos(0.6283185308e1 * x) * t * t * exp(-t / T_lubri_manufactured),
     0.3e1) * H_lubri_hat_manufactured * cos(0.6283185308e1 * x) * t *
     t * exp(-t / T_lubri_manufactured);
-
-
-    
    }
-
-  //source = 0.0;
   
   return source;
-
-
-  
  }
  
 } // end of namespace
+
+
+// hierher
 
 
 /////////////////////////////////////////////////////////////////
@@ -164,7 +192,7 @@ public:
  /// Constructor: 
  HermiteLubriBeamElement() :
   Q_pt(0),
-  Scaled_inverse_capillary_pt(&Global_Physical_Variables::Scaled_inverse_capillary_number) // hierher set properly
+  Scaled_inverse_capillary_pt(&Global_Parameters::Scaled_inverse_capillary_number) // hierher set properly
   {
   }
 
@@ -306,7 +334,7 @@ public:
      // hierher
      double (*Manufactured_soln_fct_pt)(const double& t, const double& x);
      Manufactured_soln_fct_pt=
-      &Global_Physical_Variables::h_lubri_manufactured;
+      &Global_Parameters::h_lubri_manufactured;
 
       
      // Manufactured solution
@@ -331,7 +359,7 @@ public:
              << dh_dt << " "           // 7
              << J << " "               // 8
              << h_lubri_manufactured << " " // 9
-             << Global_Physical_Variables::source_manufactured_solution(t,posn[0]) << " " // 10  hierher
+             << Global_Parameters::source_manufactured_solution(t,posn[0]) << " " // 10  hierher
              << std::endl;
     }
   }
@@ -617,7 +645,7 @@ protected:
 
 
      // Evaluate source function hierher pointer
-     double source=Global_Physical_Variables::source_manufactured_solution(t,x); 
+     double source=Global_Parameters::source_manufactured_solution(t,x); 
 
      // Premultiply the weights and the Jacobian
      double W = w * J;
@@ -633,7 +661,7 @@ protected:
          // If it's not a boundary condition
          if (local_eqn >= 0)
           {
-           if (Global_Physical_Variables::hierher_linearise)
+           if (Global_Parameters::Linearised_validation)
             {
              residuals[local_eqn] +=
               ((dh_dt-source)*psi(j,k)+inverse_capillary*curv*
@@ -682,13 +710,13 @@ private:
 //======start_of_problem_class==========================================
 /// Beam problem object
 //======================================================================
-class ElasticBeamProblem : public Problem
+class MuensterLubriBeamProblem : public Problem
 {
 public:
  
  /// Constructor: The arguments are the number of elements, 
  /// the length of domain
- ElasticBeamProblem(const unsigned &n_elem, const double &length);
+ MuensterLubriBeamProblem(const unsigned &n_elem, const double &length);
  
  /// Conduct a parameter study
  void parameter_study();
@@ -696,7 +724,6 @@ public:
  /// Validate lubrication theory
  void validate_lubri();
 
- 
  /// Return pointer to the mesh
  OneDLagrangianMesh<HermiteLubriBeamElement>* mesh_pt() 
   {return dynamic_cast<OneDLagrangianMesh<HermiteLubriBeamElement>*>
@@ -814,14 +841,14 @@ public:
     // Write trace file
    Trace_file << Doc_info.number() << " "  // 1 
               << time_pt()->time() << " "  // 2
-              << Global_Physical_Variables::P_ext  << " "  // 3
-              << Global_Physical_Variables::Sigma0 << " "  // 4
+              << Global_Parameters::P_ext  << " "  // 3
+              << Global_Parameters::Sigma0 << " "  // 4
               << Doc_node_pt->x(1) << " " // 5
               << Doc_node_pt->value(0) << " " // 6
               << kinetic_energy <<" " // 7
               << strain_energy <<" "  // 8
               << v_lubri << " "   // 9
-              << Global_Physical_Variables::h_lubri_manufactured(time_pt()->time(),
+              << Global_Parameters::h_lubri_manufactured(time_pt()->time(),
                                                                  Doc_node_pt->x(0)) << " " // 10
               << std::endl;
    
@@ -854,7 +881,7 @@ private:
 //=============start_of_constructor=====================================
 /// Constructor for elastic beam problem
 //======================================================================
-ElasticBeamProblem::ElasticBeamProblem(const unsigned &n_elem,
+MuensterLubriBeamProblem::MuensterLubriBeamProblem(const unsigned &n_elem,
                                        const double &length) : Length(length)
 {
  // Set the undeformed beam to be a straight line at y=0
@@ -922,15 +949,15 @@ ElasticBeamProblem::ElasticBeamProblem(const unsigned &n_elem,
     dynamic_cast<HermiteLubriBeamElement*>(mesh_pt()->element_pt(e));
    
    // Set physical parameters for each element:
-   elem_pt->sigma0_pt() = &Global_Physical_Variables::Sigma0;
-   elem_pt->h_pt() = &Global_Physical_Variables::H;
-   elem_pt->q_pt() = &Global_Physical_Variables::Q_fsi;
+   elem_pt->sigma0_pt() = &Global_Parameters::Sigma0;
+   elem_pt->h_pt() = &Global_Parameters::H_beam;
+   elem_pt->q_pt() = &Global_Parameters::Q_fsi;
 
    // Set the load Vector for each element
-   elem_pt->load_vector_fct_pt() = &Global_Physical_Variables::load;
+   elem_pt->load_vector_fct_pt() = &Global_Parameters::load;
 
    // Pass pointer to square of timescale ratio (non-dimensional density)
-   elem_pt->lambda_sq_pt() = &Global_Physical_Variables::Lambda_sq;
+   elem_pt->lambda_sq_pt() = &Global_Parameters::Lambda_sq;
 
    // Set the undeformed shape for each element
    elem_pt->undeformed_beam_pt() = Undef_beam_pt;
@@ -965,69 +992,66 @@ ElasticBeamProblem::ElasticBeamProblem(const unsigned &n_elem,
 //=======start_of_parameter_study==========================================
 /// Solver loop to perform parameter study
 //=========================================================================
-void ElasticBeamProblem::parameter_study()
+void MuensterLubriBeamProblem::parameter_study()
 {
- // Over-ride the default maximum value for the residuals
- Problem::Max_residuals = 1.0e10;
  
- // Set the increments in control parameters
- double pext_increment = -1.0e-7; // -0.00001;
- 
- // Set initial values for control parameters 
- Global_Physical_Variables::P_ext = 0.0 - pext_increment;
- 
- // Set the 2nd Piola Kirchhoff prestress
- Global_Physical_Variables::Sigma0=0.001;
- 
- 
+  
  // Set output directory -- this function checks if the output
  // directory exists and issues a warning if it doesn't.
- Doc_info.set_directory("RESLT");
+ Doc_info.set_directory(Global_Parameters::Dir_name);
  
  // Open a trace file
- Trace_file.open("RESLT/trace_beam.dat");
+ Trace_file.open(Global_Parameters::Dir_name+"/trace_beam.dat");
 
 
- // hierher
- 
- // // Write a header for the trace file
- // Trace_file <<  "VARIABLES=\"p_e_x_t\",\"sigma_0\""
- //            <<  ", \"d\"" << std::endl;
+
+ // Switch linear solver in total desperation
+ // linear_solver_pt()=new FD_LU;
 
 
- // Pin lubri dofs during initial steady beam calculations (otherwise
- // free surface can fly away when using no flux bcs
- pin_lubri();
-
- //linear_solver_pt()=new FD_LU;
-
- // Doc initial condition/guess
- doc_solution();
  
     
  // STAGE 1: INFLATE, WITH GIVEN POSITIVE PRESTRESS
  //------------------------------------------------
  {
 
+  // Pin lubri dofs during initial steady beam calculations (otherwise
+  // free surface can fly away when using no flux bcs)
+  pin_lubri();
+  
+  // Parameters for Inflation stage:
+  double pext_increment = -1.0e-7; 
+  Global_Parameters::P_ext = 0.0 - pext_increment;
+  
+  // Set the 2nd Piola Kirchhoff prestress (tensile)
+  Global_Parameters::Sigma0=0.001;
+  //Global_Parameters::Sigma0=0.01; // hierher
+
   // Switch off FSI
-  Global_Physical_Variables::Q_fsi=0.0;
+  Global_Parameters::Q_fsi=0.0;
   
   // Set initial values for control parameters 
-  Global_Physical_Variables::P_ext = 0.0 - pext_increment;
+  Global_Parameters::P_ext = 0.0 - pext_increment;
+  
+  // Doc initial condition/guess
+  doc_solution();
   
   // Loop over parameter increments
   unsigned nstep=10;
   for(unsigned i=1;i<=nstep;i++)
    {
     // Increment pressure
-    Global_Physical_Variables::P_ext += pext_increment;
+    Global_Parameters::P_ext += pext_increment;
     
     oomph_info << "STAGE 1: Solving for p_ext sigma_0 = "
-               << Global_Physical_Variables::P_ext << " " 
-               << Global_Physical_Variables::Sigma0
+               << Global_Parameters::P_ext << " " 
+               << Global_Parameters::Sigma0
                << std::endl;
 
 
+    
+    // why is the Jacobian singular? Let's have a look...
+    
     // DenseDoubleMatrix A;
     // DoubleVector b;
     // get_fd_jacobian(b,A);
@@ -1036,15 +1060,15 @@ void ElasticBeamProblem::parameter_study()
     // get_jacobian(b,A);
     // A.sparse_indexed_output("jac.dat");
 
+    // Ha! there's a zero row; which dofs is it associated with?
     // describe_dofs();
-    //exit(0);
+    // exit(0);
     
     // Solve the system
     steady_newton_solve();
     
     // Document the solution
     doc_solution();
-
     
    }
  }
@@ -1055,17 +1079,17 @@ void ElasticBeamProblem::parameter_study()
  {
   unsigned nstep=10;
   double d_sigma=
-   2.0*Global_Physical_Variables::Sigma0/double(nstep-1);
+   2.0*Global_Parameters::Sigma0/double(nstep-1);
   
   // Loop over parameter increments
   for(unsigned i=1;i<nstep;i++)
    {
     // Decrement pre-stress
-    Global_Physical_Variables::Sigma0-=d_sigma;
+    Global_Parameters::Sigma0-=d_sigma;
 
     oomph_info << "STAGE 2: Solving for p_ext sigma_0 = "
-               << Global_Physical_Variables::P_ext << " " 
-               <<  Global_Physical_Variables::Sigma0
+               << Global_Parameters::P_ext << " " 
+               <<  Global_Parameters::Sigma0
                << std::endl;
     
     // Solve the system
@@ -1081,19 +1105,17 @@ void ElasticBeamProblem::parameter_study()
  // STAGE 3: REDUCE PRESSURE TO ZERO
  //---------------------------------
  {
-
-  
   // Loop over parameter increments
   unsigned nstep=10;
-  double pext_increment=Global_Physical_Variables::P_ext/double(nstep);
+  double pext_increment=Global_Parameters::P_ext/double(nstep);
   for(unsigned i=1;i<=nstep;i++)
    {
     // Increment pressure
-    Global_Physical_Variables::P_ext -= pext_increment;
+    Global_Parameters::P_ext -= pext_increment;
     
     oomph_info << "STAGE 3: solving for p_ext sigma_0 = "
-               << Global_Physical_Variables::P_ext << " " 
-               <<  Global_Physical_Variables::Sigma0
+               << Global_Parameters::P_ext << " " 
+               <<  Global_Parameters::Sigma0
                << std::endl;
     
     // Solve the system
@@ -1106,8 +1128,14 @@ void ElasticBeamProblem::parameter_study()
  }
 
 
+ // Bail?
+ if (CommandLineArgs::command_line_flag_has_been_set("--steady_only"))
+  {
+   oomph_info << "Bailing out after steady solves as requested" << std::endl;
+   exit(0);
+  }
 
- //exit(0);
+ 
  
  // STAGE 4: TIMESTEP THE THING WITH FSI
  //-------------------------------------
@@ -1116,16 +1144,16 @@ void ElasticBeamProblem::parameter_study()
   double dt=0.01; // 1.0; 
 
   // Switch on FSI
-  Global_Physical_Variables::Q_fsi=
-   Global_Physical_Variables::Q_fsi_target;
+  Global_Parameters::Q_fsi=
+   Global_Parameters::Q_fsi_target;
 
   // hierher read in from command line
-  Global_Physical_Variables::P_ext_during_time_dependent_run=-1.0e-5; 
+  Global_Parameters::P_ext_during_time_dependent_run=-1.0e-5; 
 
   // Set pressure during time-dependent run (this is in addition to
   // any pressure from the fluid)
-  Global_Physical_Variables::P_ext =
-   Global_Physical_Variables::P_ext_during_time_dependent_run; 
+  Global_Parameters::P_ext =
+   Global_Parameters::P_ext_during_time_dependent_run; 
     
   // Set initial profile
   double h_mean=0.05;
@@ -1148,8 +1176,8 @@ void ElasticBeamProblem::parameter_study()
     oomph_info << "STAGE 4: Doing unsteady solve for t = "
                << time_stepper_pt()->time_pt()->time()
                << " for p_ext sigma_0 = "
-               << Global_Physical_Variables::P_ext << " " 
-               <<  Global_Physical_Variables::Sigma0
+               << Global_Parameters::P_ext << " " 
+               <<  Global_Parameters::Sigma0
                << std::endl;
     unsteady_newton_solve(dt);
     
@@ -1159,12 +1187,12 @@ void ElasticBeamProblem::parameter_study()
     doc_solution();
     
     // Switch off pressure
-    if ((Global_Physical_Variables::P_ext!=0.0)&&
+    if ((Global_Parameters::P_ext!=0.0)&&
         (time_stepper_pt()->time_pt()->time()>
-         Global_Physical_Variables::T_switch_off_pressure))
+         Global_Parameters::T_switch_off_pressure))
      {
       oomph_info << "Switching off pressure\n";
-      Global_Physical_Variables::P_ext=0.0;
+      Global_Parameters::P_ext=0.0;
      }
     
    }
@@ -1176,40 +1204,31 @@ void ElasticBeamProblem::parameter_study()
 
 
 //=======start_of_validate_lubri===========================================
-/// Validate lubrication theory
+/// Validate lubrication theory: Flat substrate, cos-shaped initial film
+/// profile
 //=========================================================================
-void ElasticBeamProblem::validate_lubri()
+void MuensterLubriBeamProblem::validate_lubri()
 {
  
  // Set initial values for control parameters 
- Global_Physical_Variables::P_ext = 0.0;
+ Global_Parameters::P_ext = 0.0;
  
  // Set the 2nd Piola Kirchhoff prestress
- Global_Physical_Variables::Sigma0=0.001;
+ Global_Parameters::Sigma0=0.001;
  
  // Switch off FSI
- Global_Physical_Variables::Q_fsi=0.0;
+ Global_Parameters::Q_fsi=0.0;
 
-  
+ 
  // Set output directory -- this function checks if the output
  // directory exists and issues a warning if it doesn't.
- Doc_info.set_directory("RESLT");
+ Doc_info.set_directory(Global_Parameters::Dir_name);
  
  // Open a trace file
- Trace_file.open("RESLT/trace_beam.dat");
-
-
- // hierher
- 
- // // Write a header for the trace file
- // Trace_file <<  "VARIABLES=\"p_e_x_t\",\"sigma_0\""
- //            <<  ", \"d\"" << std::endl;
-
-  
- // Timestep the thing
+ Trace_file.open(Global_Parameters::Dir_name+"/trace_beam.dat");
  
  // Set timestep
- double dt=0.01;
+ double dt=Global_Parameters::T_max/double(Global_Parameters::Ntstep);
  
  // Set initial profile
  double h_mean=0.1;
@@ -1225,8 +1244,7 @@ void ElasticBeamProblem::validate_lubri()
  
  // Assign impulsive start
  assign_initial_values_impulsive(dt); // hierher try bypassing
- unsigned nstep=10000; // 1000; // hierher
- for (unsigned i=0;i<nstep;i++)
+ for (unsigned i=0;i<Global_Parameters::Ntstep;i++)
   {
    // Solve
    oomph_info << "VALIDATION: Doing unsteady solve for t = "
@@ -1249,11 +1267,37 @@ int main(int argc, char **argv)
  // Store command line arguments
  CommandLineArgs::setup(argc,argv);
 
+ // Do validation?
+ CommandLineArgs::specify_command_line_flag("--validate");
+
+ // Do validation with linearised solution?
+ CommandLineArgs::specify_command_line_flag("--linearised_validation");
+
+ // Name of output directory
+ CommandLineArgs::specify_command_line_flag(
+  "--dir_name",&Global_Parameters::Dir_name);
+ 
+ // Number of elements (choose an even number if you want the control point 
+ // to be located at the centre of the beam)
+ unsigned n_element = 50;
+ CommandLineArgs::specify_command_line_flag(
+  "--nelement",&n_element);
+
+ // Number of timesteps
+ CommandLineArgs::specify_command_line_flag(
+  "--ntstep",&Global_Parameters::Ntstep);
+
+ // Max. time for timestepping
+ CommandLineArgs::specify_command_line_flag(
+  "--t_max",&Global_Parameters::T_max);
+
+ // Only steady computations in actual problem?
+ CommandLineArgs::specify_command_line_flag("--steady_only");
 
  // Target FSI parameter
  CommandLineArgs::specify_command_line_flag(
   "--q_fsi_target",
-  &Global_Physical_Variables::Q_fsi_target);
+  &Global_Parameters::Q_fsi_target);
 
  // Parse command line
  CommandLineArgs::parse_and_assign(); 
@@ -1261,27 +1305,33 @@ int main(int argc, char **argv)
  // Doc what has actually been specified on the command line
  CommandLineArgs::doc_specified_flags();
  
- 
  // Set the non-dimensional thickness 
- Global_Physical_Variables::H=0.001; 
+ Global_Parameters::H_beam=0.001; 
  
  // Set the length of domain // hierher get rid of this algotether
  double L = 1.0;
 
- // Number of elements (choose an even number if you want the control point 
- // to be located at the centre of the beam)
- unsigned n_element = 50; // 20;
 
  // Construst the problem
- ElasticBeamProblem problem(n_element,L);
+ MuensterLubriBeamProblem problem(n_element,L);
 
- // Validate lubrication theory
- problem.validate_lubri();
 
- exit(0);
-
+ // Validate lubrication theory?
+ //-----------------------------
+ if (CommandLineArgs::command_line_flag_has_been_set("--validate"))
+  {
+   // Linearised validation?    
+   if (CommandLineArgs::command_line_flag_has_been_set
+       ("--linearised_validation"))
+    {
+     Global_Parameters::Linearised_validation=true;
+    }
+   problem.validate_lubri();
+   exit(0);
+  }
 
  // Conduct parameter study
+ //------------------------
  problem.parameter_study();
 
 } // end of main
