@@ -1,12 +1,19 @@
 with(plots):
+interface(echo=4);
 
-ampl(t):=(1+t^2)*exp(-t/T_lubri_manufactured);
+#ampl(t):=(1+t^2)*exp(-t/T_lubri_manufactured);
+ampl(t):=t^2*exp(-t/T_lubri_manufactured);
 
 plot([subs(T_lubri_manufactured=10,ampl(t)),subs(T_lubri_manufactured=10,diff(ampl(t),t))],t=0..100);
 
 
-source:=diff(h(x,t),t)+diff( (Scaled_inverse_capillary_number/3*h(x,t)^3*diff(h(x,t),x$3)) , x);
 
+# Nonlinear
+source_nonlin:=diff(h(x,t),t)+diff( ( Scaled_inverse_capillary_number/3* h(x,t)^3 *diff(h(x,t),x$3) ) , x);
+
+
+# Linear version
+source_lin   :=diff(h(x,t),t)+diff( ( Scaled_inverse_capillary_number/3*           diff(h(x,t),x$3) ) , x);
 
 h(x,t):= H_lubri_mean_manufactured+
    H_lubri_hat_manufactured*
@@ -14,9 +21,10 @@ h(x,t):= H_lubri_mean_manufactured+
    
 
 with(CodeGeneration):
-C(eval(source));
+C(eval(source_nonlin),resultname="source_nonlin");
+C(eval(source_lin),resultname="source_lin");
 
 
-plot(subs(T_lubri_manufactured=10,Scaled_inverse_capillary_number=1,H_lubri_mean_manufactured=0.1,H_lubri_hat_manufactured=-0.05,t=0.1,source),x=0..1);
+plot(subs(T_lubri_manufactured=10,Scaled_inverse_capillary_number=1,H_lubri_mean_manufactured=0.1,H_lubri_hat_manufactured=-0.05,t=0.1,source_nonlin),x=0..1);
 
-animate(subs(T_lubri_manufactured=10,Scaled_inverse_capillary_number=1,H_lubri_mean_manufactured=0.1,H_lubri_hat_manufactured=-0.05,source),x=0..1,t=0..10);
+animate(subs(T_lubri_manufactured=10,Scaled_inverse_capillary_number=1,H_lubri_mean_manufactured=0.1,H_lubri_hat_manufactured=-0.05,source_nonlin),x=0..1,t=0..100);

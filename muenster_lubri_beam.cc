@@ -40,6 +40,10 @@ using namespace oomph;
 //==================================================
 namespace Global_Physical_Variables
 {
+
+
+ bool hierher_linearise=false;
+
  /// Non-dimensional beam thickness
  double H=0.05; // hierher check where else it's assigned
 
@@ -94,29 +98,43 @@ namespace Global_Physical_Variables
   return H_lubri_mean_manufactured+
    H_lubri_hat_manufactured*
    cos(2.0*MathematicalConstants::Pi*x)*
-   exp(-t/T_lubri_manufactured)*(1.0+t*t);
+   exp(-t/T_lubri_manufactured)*t*t;
  }
 
  /// source term for manufactured solution
  double source_manufactured_solution(const double& t, const double& x)
  {
+  double source=0.0;
 
-  double source= 0.2e1 * H_lubri_hat_manufactured * cos(0.6283185308e1
-  * x) * t * exp(-t / T_lubri_manufactured) - H_lubri_hat_manufactured
-  * cos(0.6283185308e1 * x) * (t * t + 0.1e1) / T_lubri_manufactured *
-  exp(-t / T_lubri_manufactured) - 0.1558545457e4 *
-  Scaled_inverse_capillary_number * pow(H_lubri_mean_manufactured +
-  H_lubri_hat_manufactured * cos(0.6283185308e1 * x) * (t * t + 0.1e1)
-  * exp(-t / T_lubri_manufactured), 0.2e1) * H_lubri_hat_manufactured
-  * H_lubri_hat_manufactured * pow(sin(0.6283185308e1 * x), 0.2e1) *
-  pow(t * t + 0.1e1, 0.2e1) * pow(exp(-t / T_lubri_manufactured),
-  0.2e1) + 0.5195151523e3 * Scaled_inverse_capillary_number *
-  pow(H_lubri_mean_manufactured + H_lubri_hat_manufactured *
-  cos(0.6283185308e1 * x) * (t * t + 0.1e1) * exp(-t /
-  T_lubri_manufactured), 0.3e1) * H_lubri_hat_manufactured *
-  cos(0.6283185308e1 * x) * (t * t + 0.1e1) * exp(-t /
-  T_lubri_manufactured);
+  if (Global_Physical_Variables::hierher_linearise)
+   {
+    source = 0.2e1 * H_lubri_hat_manufactured * cos(0.6283185308e1 *
+    x) * t * exp(-t / T_lubri_manufactured) - H_lubri_hat_manufactured
+    * cos(0.6283185308e1 * x) * t * t / T_lubri_manufactured * exp(-t
+    / T_lubri_manufactured) + 0.5195151523e3 *
+    Scaled_inverse_capillary_number * H_lubri_hat_manufactured *
+    cos(0.6283185308e1 * x) * t * t * exp(-t / T_lubri_manufactured);
+   }
+  else
+   {
+    source= 0.2e1 * H_lubri_hat_manufactured * cos(0.6283185308e1 * x)
+    * t * exp(-t / T_lubri_manufactured) - H_lubri_hat_manufactured *
+    cos(0.6283185308e1 * x) * t * t / T_lubri_manufactured * exp(-t /
+    T_lubri_manufactured) - 0.1558545457e4 *
+    Scaled_inverse_capillary_number * pow(H_lubri_mean_manufactured +
+    H_lubri_hat_manufactured * cos(0.6283185308e1 * x) * t * t *
+    exp(-t / T_lubri_manufactured), 0.2e1) * H_lubri_hat_manufactured
+    * H_lubri_hat_manufactured * pow(sin(0.6283185308e1 * x), 0.2e1) *
+    pow(t, 0.4e1) * pow(exp(-t / T_lubri_manufactured), 0.2e1) +
+    0.5195151523e3 * Scaled_inverse_capillary_number *
+    pow(H_lubri_mean_manufactured + H_lubri_hat_manufactured *
+    cos(0.6283185308e1 * x) * t * t * exp(-t / T_lubri_manufactured),
+    0.3e1) * H_lubri_hat_manufactured * cos(0.6283185308e1 * x) * t *
+    t * exp(-t / T_lubri_manufactured);
 
+
+    
+   }
 
   //source = 0.0;
   
@@ -573,14 +591,15 @@ protected:
        for (unsigned k = 0; k < n_position_type; k++)
         {
          x+=raw_dnodal_position_gen_dt(0, l, k, 0) * psi(l, k);
-          
+
+         // filn thickness
          h_lubri+=nodal_h_lubri(l, k) * psi(l, k);
          
-         // slope (take change into arclength into account
+         // slope 
          dh_lubri_dxi+=nodal_h_lubri(l, k)*dpsidxi(l,k,0);
 
          // curvature of free surface, taking substrate (beam) curvature into
-         // account hierher (i) linear (ii) ignore horizontal beam displacement!
+         // account. Simplified: (i) linear (ii) ignore horizontal beam displacement!
          curv+=(nodal_h_lubri(l, k)+raw_nodal_position_gen(l,k,1))*
           d2psidxi(l,k,0);
 
@@ -597,10 +616,9 @@ protected:
       }
 
 
-     // Evaluate source function
-     double source=Global_Physical_Variables::source_manufactured_solution(t,x);
-     //std::cout << "source " << source << std::endl;
-     
+     // Evaluate source function hierher pointer
+     double source=Global_Physical_Variables::source_manufactured_solution(t,x); 
+
      // Premultiply the weights and the Jacobian
      double W = w * J;
      
@@ -615,10 +633,23 @@ protected:
          // If it's not a boundary condition
          if (local_eqn >= 0)
           {
-           residuals[local_eqn] +=
-            ((dh_dt-source)*psi(j,k)+inverse_capillary*curv*
-             (h_lubri*h_lubri*dh_lubri_dxi*dpsidxi(j,k,0)+
-              h_lubri*h_lubri*h_lubri/3.0*d2psidxi(j,k,0)))*W;
+           if (Global_Physical_Variables::hierher_linearise)
+            {
+             residuals[local_eqn] +=
+              ((dh_dt-source)*psi(j,k)+inverse_capillary*curv*
+               1.0/3.0*d2psidxi(j,k,0))*W;
+            }
+           else
+            {
+             residuals[local_eqn] +=
+              (
+               (dh_dt-source)*psi(j,k)+
+               inverse_capillary*curv*
+               (h_lubri*h_lubri*dh_lubri_dxi * dpsidxi(j,k,0)+
+                h_lubri*h_lubri*h_lubri/3.0  *d2psidxi(j,k,0) )
+               )*W;
+            }
+
           }
         }
       }
@@ -720,7 +751,7 @@ public:
 
  
 
- // hierher
+ // hierher reconcile with manufactured solution
  void set_initial_h_lubri(const double& h_mean, const double& h_amplitude)
   {
     // For now: Pin all lubri dofs and assign values
@@ -968,7 +999,7 @@ void ElasticBeamProblem::parameter_study()
  // free surface can fly away when using no flux bcs
  pin_lubri();
 
- // linear_solver_pt()=new FD_LU;
+ //linear_solver_pt()=new FD_LU;
 
  // Doc initial condition/guess
  doc_solution();
@@ -1156,7 +1187,6 @@ void ElasticBeamProblem::validate_lubri()
  // Set the 2nd Piola Kirchhoff prestress
  Global_Physical_Variables::Sigma0=0.001;
  
- 
  // Switch off FSI
  Global_Physical_Variables::Q_fsi=0.0;
 
@@ -1175,15 +1205,15 @@ void ElasticBeamProblem::validate_lubri()
  // Trace_file <<  "VARIABLES=\"p_e_x_t\",\"sigma_0\""
  //            <<  ", \"d\"" << std::endl;
 
- 
+  
  // Timestep the thing
  
  // Set timestep
- double dt=0.001;
+ double dt=0.01;
  
  // Set initial profile
- double h_mean=0.05;
- double h_amplitude=0.05;
+ double h_mean=0.1;
+ double h_amplitude=0.0; // 0.05;
  set_initial_h_lubri(h_mean,h_amplitude);
  
  // Unpin lubri dofs 
