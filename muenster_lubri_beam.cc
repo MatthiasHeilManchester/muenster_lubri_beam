@@ -87,7 +87,7 @@ namespace Global_Parameters
  //------------------------------
 
  /// Scaled inverse capillary number
- double Scaled_inverse_capillary_number=1.0; // hierher set properly
+ double Scaled_inverse_capillary_number=1.0; 
 
 
  // Runtime parameters
@@ -101,10 +101,6 @@ namespace Global_Parameters
 
  // Max. time for timestepping
  double T_max=1.0;
-
- 
-
- 
 
  
 
@@ -194,8 +190,7 @@ public:
  
  /// Constructor: 
  HermiteLubriBeamElement() :
-  Q_pt(0),
-  Scaled_inverse_capillary_pt(&Global_Parameters::Scaled_inverse_capillary_number) // hierher set properly
+  Q_pt(0), Scaled_inverse_capillary_pt(0) 
   {
   }
 
@@ -316,8 +311,8 @@ public:
          dh_lubri_dxi+=nodal_h_lubri(l,k)*dpsidxi(l,k,0);
 
          // curvature of free surface, taking substrate (beam) curvature into
-         // account hierher computed using (i) linearity (ii) ignoring
-         // horizontal beam displacemen!
+         // account. All computed using (i) linearity (ii) ignoring
+         // horizontal beam displacements (and stretching of beam!).
          curv+=(nodal_h_lubri(l, k)+raw_nodal_position_gen(l,k,1))*
           d2psidxi(l,k,0);
 
@@ -400,7 +395,7 @@ public:
  
 
  /// Pointer to scaled inverse capillary number (read/write)
- double* scaled_inverse_capillary_pt()
+ double*& scaled_inverse_capillary_pt()
   {
    return Scaled_inverse_capillary_pt;
   }
@@ -413,7 +408,6 @@ public:
     {
      return 0.0;
     }
-   
    return *Scaled_inverse_capillary_pt;
   }
 
@@ -481,12 +475,15 @@ public:
      for (unsigned k = 0; k < n_position_type; k++)
       {
        // curvature of free surface, taking substrate (beam) curvature into
-       // account hierher (i) linear (ii) ignore horizontal beam displacement!
-       curv+=(nodal_h_lubri(l, k)+raw_nodal_position_gen(l,k,1))*d2psidxi(l,k,0);
+       // account. All computed using (i) linearity (ii) ignoring
+       // horizontal beam displacements (and stretching of beam!).
+       curv+=(nodal_h_lubri(l, k)+raw_nodal_position_gen(l,k,1))*
+        d2psidxi(l,k,0);
       }
     }
-   
-   double q_fsi=q(); // 1.0e-4; // 1.0e-6; //1.0e-8;
+
+   // Add FSI load
+   double q_fsi=q(); 
    load[0]+=q_fsi*curv*N[0];
    load[1]+=q_fsi*curv*N[1];
    
@@ -717,9 +714,8 @@ class MuensterLubriBeamProblem : public Problem
 {
 public:
  
- /// Constructor: The arguments are the number of elements, 
- /// the length of domain
- MuensterLubriBeamProblem(const unsigned &n_elem, const double &length);
+ /// Constructor: The arguments are the number of elements
+ MuensterLubriBeamProblem(const unsigned &n_elem);
  
  /// Conduct a parameter study
  void parameter_study();
@@ -872,9 +868,6 @@ private:
  /// Pointer to the node whose displacement is documented
  Node* Doc_node_pt;
 
- /// Length of domain (in terms of the Lagrangian coordinates)
- double Length;
-
  /// Pointer to geometric object that represents the beam's undeformed shape
  GeomObject* Undef_beam_pt;
 
@@ -884,8 +877,7 @@ private:
 //=============start_of_constructor=====================================
 /// Constructor for elastic beam problem
 //======================================================================
-MuensterLubriBeamProblem::MuensterLubriBeamProblem(const unsigned &n_elem,
-                                       const double &length) : Length(length)
+MuensterLubriBeamProblem::MuensterLubriBeamProblem(const unsigned &n_elem)
 {
  // Set the undeformed beam to be a straight line at y=0
  Undef_beam_pt=new StraightLine(0.0); 
@@ -898,6 +890,7 @@ MuensterLubriBeamProblem::MuensterLubriBeamProblem(const unsigned &n_elem,
  // Create the (Lagrangian!) mesh, using the geometric object
  // Undef_beam_pt to specify the initial (Eulerian) position of the
  // nodes.
+ double length=1.0;
  Problem::mesh_pt() = 
   new OneDLagrangianMesh<HermiteLubriBeamElement>(n_elem,length,Undef_beam_pt,
                                                   Problem::time_stepper_pt());
@@ -964,6 +957,10 @@ MuensterLubriBeamProblem::MuensterLubriBeamProblem(const unsigned &n_elem,
 
    // Set the undeformed shape for each element
    elem_pt->undeformed_beam_pt() = Undef_beam_pt;
+
+   // Set pointer to scaled inverse capillary number
+   elem_pt->scaled_inverse_capillary_pt()=
+    &Global_Parameters::Scaled_inverse_capillary_number;
    
   } // end of loop over elements
 
@@ -1315,12 +1312,8 @@ int main(int argc, char **argv)
  // Set the non-dimensional thickness 
  Global_Parameters::H_beam=0.001; 
  
- // Set the length of domain // hierher get rid of this algotether
- double L = 1.0;
-
-
  // Construst the problem
- MuensterLubriBeamProblem problem(n_element,L);
+ MuensterLubriBeamProblem problem(n_element);
 
 
  // Validate lubrication theory?
