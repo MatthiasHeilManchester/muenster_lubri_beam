@@ -20,6 +20,52 @@ cp $important_files $run_dir
 cd $run_dir
 
 
+# Do real run (zero FSI; pressure kick to check energy conservation; 100 steps up to t=10.0 is OK; 1000 is perfect
+#=================================================================================================================
+reslt_dir=RESLT_KICK_NO_FSI
+mkdir $reslt_dir
+./muenster_lubri_beam --ntstep 1000 --t_max 10.0 --t_switch_off_kick 2.0 --p_ext_kick 1.0e-5 --q_fsi_target 0.0 --dir_name $reslt_dir > $reslt_dir/OUTPUT 
+
+# Gnuplot the the thing
+cd $reslt_dir
+nstep=`find . -name 'beam*.dat' | wc -w `
+let nstep=$nstep-1
+gnuplot -p -e "nstep=$nstep" ../plot_muenster.gp
+
+
+exit 0;
+
+
+# Do real run (with FSI; try q_fsi = 1.0e-8; 1.0e-7; 5.0e-7)
+#===========================================================
+reslt_dir=RESLT_FSI
+mkdir $reslt_dir
+./muenster_lubri_beam --ntstep 500 --t_max 50.0 --q_fsi_target 5.0e-7 --dir_name $reslt_dir > $reslt_dir/OUTPUT 
+
+# Gnuplot the the thing
+cd $reslt_dir
+nstep=`find . -name 'beam*.dat' | wc -w `
+let nstep=$nstep-1
+gnuplot -p -e "nstep=$nstep" ../plot_muenster.gp
+
+
+exit 0;
+
+# Do real run (zero FSI)
+#=======================
+reslt_dir=RESLT_NO_FSI
+mkdir $reslt_dir
+./muenster_lubri_beam --ntstep 500 --t_max 50.0 --q_fsi_target 0.0 --dir_name $reslt_dir > $reslt_dir/OUTPUT 
+
+# Gnuplot the the thing
+cd $reslt_dir
+nstep=`find . -name 'beam*.dat' | wc -w `
+let nstep=$nstep-1
+gnuplot -p -e "nstep=$nstep" ../plot_muenster.gp
+
+
+exit 0;
+
 
 # Do real run (steady only)
 #==========================

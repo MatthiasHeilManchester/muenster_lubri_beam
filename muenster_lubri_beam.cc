@@ -45,7 +45,7 @@ namespace Global_Parameters
  //-----------------
 
  /// Non-dimensional beam thickness
- double H_beam=0.001;
+ double H_beam=0.05;
 
  /// 2nd Piola Kirchhoff pre-stress
  double Sigma0=0.0;
@@ -69,7 +69,7 @@ namespace Global_Parameters
 
  /// Time at which pressure is switched off during time-dependent
  /// simulation
- double T_switch_off_pressure=2.0;
+ double T_switch_off_pressure_during_time_dependent_run=2.0;
 
 
  // FSI parameters
@@ -165,6 +165,9 @@ namespace Global_Parameters
     0.3e1) * H_lubri_hat_manufactured * cos(0.6283185308e1 * x) * t *
     t * exp(-t / T_lubri_manufactured);
    }
+
+  // heirher use pointer
+  source = 0.0;
   
   return source;
  }
@@ -1024,8 +1027,7 @@ void MuensterLubriBeamProblem::parameter_study()
   Global_Parameters::P_ext = 0.0 - pext_increment;
   
   // Set the 2nd Piola Kirchhoff prestress (tensile)
-  Global_Parameters::Sigma0=0.001;
-  //Global_Parameters::Sigma0=0.01; // hierher
+  Global_Parameters::Sigma0=0.005; 
 
   // Switch off FSI
   Global_Parameters::Q_fsi=0.0;
@@ -1141,26 +1143,23 @@ void MuensterLubriBeamProblem::parameter_study()
  //-------------------------------------
  {
   // Set timestep
-  double dt=0.01; // 1.0; 
-
+  double dt=Global_Parameters::T_max/double(Global_Parameters::Ntstep);
+ 
   // Switch on FSI
   Global_Parameters::Q_fsi=
    Global_Parameters::Q_fsi_target;
 
-  // hierher read in from command line
-  Global_Parameters::P_ext_during_time_dependent_run=-1.0e-5; 
-
   // Set pressure during time-dependent run (this is in addition to
   // any pressure from the fluid)
-  Global_Parameters::P_ext =
+  Global_Parameters::P_ext=
    Global_Parameters::P_ext_during_time_dependent_run; 
     
-  // Set initial profile
+  // Set initial profile // hierher unify with validation solution
   double h_mean=0.05;
   double h_amplitude=0.05;
   set_initial_h_lubri(h_mean,h_amplitude);
 
-  // Unpin lubri dofs during initial steady beam calculationsc
+  // Unpin lubri dof
   bool no_flux_bc=true;
   unpin_lubri(no_flux_bc);
 
@@ -1169,8 +1168,7 @@ void MuensterLubriBeamProblem::parameter_study()
   
   // Assign impulsive start
   assign_initial_values_impulsive(dt); // hierher try bypassing
-  unsigned nstep=10000; // 1000; // hierher
-  for (unsigned i=0;i<nstep;i++)
+  for (unsigned i=0;i<Global_Parameters::Ntstep;i++)
    {
     // Solve
     oomph_info << "STAGE 4: Doing unsteady solve for t = "
@@ -1181,15 +1179,13 @@ void MuensterLubriBeamProblem::parameter_study()
                << std::endl;
     unsteady_newton_solve(dt);
     
-    
-    
     // Document the solution
     doc_solution();
     
     // Switch off pressure
     if ((Global_Parameters::P_ext!=0.0)&&
         (time_stepper_pt()->time_pt()->time()>
-         Global_Parameters::T_switch_off_pressure))
+         Global_Parameters::T_switch_off_pressure_during_time_dependent_run))
      {
       oomph_info << "Switching off pressure\n";
       Global_Parameters::P_ext=0.0;
@@ -1299,6 +1295,17 @@ int main(int argc, char **argv)
   "--q_fsi_target",
   &Global_Parameters::Q_fsi_target);
 
+  // Pressure during time-dependent run (this is in addition to
+  // any pressure from the fluid)
+ CommandLineArgs::specify_command_line_flag(
+  "--p_ext_kick",
+  &Global_Parameters::P_ext_during_time_dependent_run); 
+ 
+ // Time at which additional pressure is switched off
+ CommandLineArgs::specify_command_line_flag(
+  "--t_switch_off_kick",
+  &Global_Parameters::T_switch_off_pressure_during_time_dependent_run);
+     
  // Parse command line
  CommandLineArgs::parse_and_assign(); 
  
