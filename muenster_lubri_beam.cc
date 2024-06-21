@@ -161,9 +161,6 @@ namespace Global_Parameters
     0.3e1) * H_lubri_hat_manufactured * cos(0.6283185308e1 * x) * t *
     t * exp(-t / T_lubri_manufactured);
    }
-
-  // heirher use pointer
-  source = 0.0;
   
   return source;
  }
@@ -190,7 +187,7 @@ public:
  
  /// Constructor: 
  HermiteLubriBeamElement() :
-  Q_pt(0), Scaled_inverse_capillary_pt(0) 
+  Q_pt(0), Scaled_inverse_capillary_pt(0), Source_fct_pt(0)
   {
   }
 
@@ -357,7 +354,7 @@ public:
              << dh_dt << " "           // 7
              << J << " "               // 8
              << h_lubri_manufactured << " " // 9
-             << Global_Parameters::source_manufactured_solution(t,posn[0]) << " " // 10  hierher
+             << source(t,posn[0]) << " " // 10  
              << std::endl;
     }
   }
@@ -409,6 +406,32 @@ public:
      return 0.0;
     }
    return *Scaled_inverse_capillary_pt;
+  }
+
+ 
+ /// Function pointer to source function
+ typedef double (*LubriSourceFctPt)(const double& t, const double& x);
+ 
+ /// Pointer to source function (const version)
+ LubriSourceFctPt source_fct_pt() const
+  {
+   return Source_fct_pt;
+  }
+
+ /// Pointer to source function (read/write)
+ LubriSourceFctPt& source_fct_pt()
+  {
+   return Source_fct_pt;
+  }
+  
+ /// Source function
+ double source(const double& t, const double& x) const
+  {
+   if (Source_fct_pt==0)
+    {
+     return 0.0;
+    }
+   return Source_fct_pt(t,x);
   }
 
 
@@ -645,7 +668,7 @@ protected:
 
 
      // Evaluate source function hierher pointer
-     double source=Global_Parameters::source_manufactured_solution(t,x); 
+     double lubri_source=source(t,x);
 
      // Premultiply the weights and the Jacobian
      double W = w * J;
@@ -664,14 +687,14 @@ protected:
            if (Global_Parameters::Linearised_validation)
             {
              residuals[local_eqn] +=
-              ((dh_dt-source)*psi(j,k)+inverse_capillary*curv*
+              ((dh_dt-lubri_source)*psi(j,k)+inverse_capillary*curv*
                1.0/3.0*d2psidxi(j,k,0))*W;
             }
            else
             {
              residuals[local_eqn] +=
               (
-               (dh_dt-source)*psi(j,k)+
+               (dh_dt-lubri_source)*psi(j,k)+
                inverse_capillary*curv*
                (h_lubri*h_lubri*dh_lubri_dxi * dpsidxi(j,k,0)+
                 h_lubri*h_lubri*h_lubri/3.0  *d2psidxi(j,k,0) )
@@ -691,10 +714,11 @@ private:
  /// Pointer to FSI parameter
  double* Q_pt;
 
-
  /// Pointer to scaled inverse capillary number
  double* Scaled_inverse_capillary_pt;
- 
+
+ /// Pointer to source function
+ double(*Source_fct_pt)(const double& t, const double& x);
  
 };
 
@@ -879,12 +903,17 @@ private:
 //======================================================================
 MuensterLubriBeamProblem::MuensterLubriBeamProblem(const unsigned &n_elem)
 {
+
+ // Taking away the pressure for negatively pre-stressed beam can be
+ // a bit flakey...
+ Problem::Max_newton_iterations=100;
+ 
  // Set the undeformed beam to be a straight line at y=0
  Undef_beam_pt=new StraightLine(0.0); 
 
  // Create the timestepper and add it to the Problem's collection of
  // timesteppers -- this creates the Problem's Time object.
- add_time_stepper_pt(new Newmark<3>()); // hierher why 3?
+ add_time_stepper_pt(new NewmarkBDF<1>); 
 
  
  // Create the (Lagrangian!) mesh, using the geometric object
@@ -961,6 +990,13 @@ MuensterLubriBeamProblem::MuensterLubriBeamProblem(const unsigned &n_elem)
    // Set pointer to scaled inverse capillary number
    elem_pt->scaled_inverse_capillary_pt()=
     &Global_Parameters::Scaled_inverse_capillary_number;
+
+   // Source function for validation
+   if (CommandLineArgs::command_line_flag_has_been_set("--validate"))
+    {
+     elem_pt->source_fct_pt()=
+      &Global_Parameters::source_manufactured_solution;
+    }
    
   } // end of loop over elements
 
