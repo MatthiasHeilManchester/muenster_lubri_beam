@@ -108,7 +108,7 @@ namespace Global_Parameters
  //-------------------------------------------------
 
  /// Validate solution of linearised equations?
- bool Linearised_validation=false;
+ bool Linearised_flux=false;
 
  // hierher unify this with initial film profile
  
@@ -135,7 +135,7 @@ namespace Global_Parameters
  {
   double source=0.0;
 
-  if (Global_Parameters::Linearised_validation)
+  if (Global_Parameters::Linearised_flux)
    {
     source = 0.2e1 * H_lubri_hat_manufactured * cos(0.6283185308e1 *
     x) * t * exp(-t / T_lubri_manufactured) - H_lubri_hat_manufactured
@@ -684,7 +684,8 @@ protected:
          // If it's not a boundary condition
          if (local_eqn >= 0)
           {
-           if (Global_Parameters::Linearised_validation)
+           // hierher local bool!
+           if (Global_Parameters::Linearised_flux)
             {
              residuals[local_eqn] +=
               ((dh_dt-lubri_source)*psi(j,k)+inverse_capillary*curv*
@@ -798,30 +799,66 @@ public:
    oomph_info << "Unpinned lubri dofs: # of dofs = "
               << assign_eqn_numbers() << std::endl;
   }
-
  
 
  // hierher reconcile with manufactured solution
- void set_initial_h_lubri(const double& h_mean, const double& h_amplitude)
+ void set_initial_h_lubri(const double& h_mean,
+                          const double& h_amplitude,
+                          const bool& use_cos)
   {
-    // For now: Pin all lubri dofs and assign values
-   // consistnt with constant film thickness
+   // mapping for slope dofs
+   double s_min=mesh_pt()->finite_element_pt(0)->s_min();
+   double s_max=mesh_pt()->finite_element_pt(0)->s_max();
+   double length=1.0;
+   unsigned nel=mesh_pt()->nelement();
+   double dx_ds=(length/double(nel))/(s_max-s_min);
+
+   // visit nodes
    unsigned nnod=Problem::mesh_pt()->nnode();
    for (unsigned j=0;j<nnod;j++)
     {
      double x=double(j)/double(nnod-1);
-     double h=h_mean+h_amplitude*(1.0-cos(2.0*MathematicalConstants::Pi*x));
+
+     double h=0.0;
+     if (use_cos)
+      {
+       h=h_mean+h_amplitude*cos(2.0*MathematicalConstants::Pi*x);
+      }
+     else
+      {
+       h=h_mean+h_amplitude*sin(MathematicalConstants::Pi*x);
+      }
+        
      // Value
-     Problem::mesh_pt()->node_pt(j)->set_value(0,h);
+     mesh_pt()->node_pt(j)->set_value(0,h);
      
      // Slope
-     unsigned nel=mesh_pt()->nelement();
-     double dh_ds=0.5*h_amplitude*2.0*MathematicalConstants::Pi/double(nel)*
-      sin(2.0*MathematicalConstants::Pi*x);
-    Problem::mesh_pt()->node_pt(j)->set_value(1,dh_ds);
-  }
+     double dh_dx=0.0;
+     if (use_cos)
+      {
+       dh_dx=-h_amplitude*2.0*MathematicalConstants::Pi*
+        sin(2.0*MathematicalConstants::Pi*x);
+      }
+     else
+      {
+       dh_dx=h_amplitude*MathematicalConstants::Pi*
+        cos(MathematicalConstants::Pi*x);
+      }
+      
+     double dh_ds=dh_dx*dx_ds;
+     mesh_pt()->node_pt(j)->set_value(1,dh_ds);
+    }
+
+// hierher get rid of this 
+
+   // Impose height manually
+   if (!use_cos)
+    {
+     mesh_pt()->boundary_node_pt(0,0)->set_value(0,0.0); // hierher h_mean
+     mesh_pt()->boundary_node_pt(1,0)->set_value(0,0.0);
+    }
  
-}
+  }
 
 
  /// Output stuff
@@ -862,18 +899,20 @@ public:
     }
 
     // Write trace file
-   Trace_file << Doc_info.number() << " "  // 1 
-              << time_pt()->time() << " "  // 2
-              << Global_Parameters::P_ext  << " "  // 3
-              << Global_Parameters::Sigma0 << " "  // 4
-              << Doc_node_pt->x(1) << " " // 5
-              << Doc_node_pt->value(0) << " " // 6
-              << kinetic_energy <<" " // 7
-              << strain_energy <<" "  // 8
-              << v_lubri << " "   // 9
-              << Global_Parameters::h_lubri_manufactured(time_pt()->time(),
-                                                                 Doc_node_pt->x(0)) << " " // 10
-              << std::endl;
+   Trace_file
+    << Doc_info.number() << " "  // 1 
+    << time_pt()->time() << " "  // 2
+    << Global_Parameters::P_ext  << " "  // 3
+    << Global_Parameters::Sigma0 << " "  // 4
+    << Doc_node_pt->x(1) << " " // 5
+    << Doc_node_pt->value(0) << " " // 6
+    << kinetic_energy <<" " // 7
+    << strain_energy <<" "  // 8
+    << v_lubri << " "   // 9
+    << Global_Parameters::h_lubri_manufactured(time_pt()->time(),
+                                               Doc_node_pt->x(0))
+    << " " // 10
+    << std::endl;
    
    // Bump
    Doc_info.number()++;
@@ -913,7 +952,7 @@ MuensterLubriBeamProblem::MuensterLubriBeamProblem(const unsigned &n_elem)
 
  // Create the timestepper and add it to the Problem's collection of
  // timesteppers -- this creates the Problem's Time object.
- add_time_stepper_pt(new NewmarkBDF<1>); 
+ add_time_stepper_pt(new NewmarkBDF<2>); 
 
  
  // Create the (Lagrangian!) mesh, using the geometric object
@@ -961,7 +1000,8 @@ MuensterLubriBeamProblem::MuensterLubriBeamProblem(const unsigned &n_elem)
  // Assign uniform initial film thickness
  double h_mean=0.1;
  double h_amplitude=0.0;
- set_initial_h_lubri(h_mean,h_amplitude);
+ bool use_cos=true;
+ set_initial_h_lubri(h_mean,h_amplitude,use_cos);
  
  //Find number of elements in the mesh
  unsigned n_element = mesh_pt()->nelement();
@@ -1188,12 +1228,20 @@ void MuensterLubriBeamProblem::parameter_study()
    Global_Parameters::P_ext_during_time_dependent_run; 
     
   // Set initial profile // hierher unify with validation solution
-  double h_mean=0.05;
-  double h_amplitude=0.05;
-  set_initial_h_lubri(h_mean,h_amplitude);
+  double h_mean=0.1;
+  double h_amplitude=-0.05;
+  bool use_cos=true;
+  bool no_flux_bc=true;
+ if (CommandLineArgs::command_line_flag_has_been_set("--pin_h_lubri_at_zero"))
+  {
+   use_cos=false;
+   h_mean=0.0;
+   h_amplitude=0.05;
+   no_flux_bc=false;
+  }
+  set_initial_h_lubri(h_mean,h_amplitude,use_cos);
 
   // Unpin lubri dof
-  bool no_flux_bc=true;
   unpin_lubri(no_flux_bc);
 
   // Document the solution
@@ -1261,8 +1309,9 @@ void MuensterLubriBeamProblem::validate_lubri()
  
  // Set initial profile
  double h_mean=0.1;
- double h_amplitude=0.0; // 0.05;
- set_initial_h_lubri(h_mean,h_amplitude);
+ double h_amplitude=0.0;
+ bool use_cos=true;
+ set_initial_h_lubri(h_mean,h_amplitude,use_cos);
  
  // Unpin lubri dofs 
  bool no_flux_bc=true;
@@ -1300,7 +1349,7 @@ int main(int argc, char **argv)
  CommandLineArgs::specify_command_line_flag("--validate");
 
  // Do validation with linearised solution?
- CommandLineArgs::specify_command_line_flag("--linearised_validation");
+ CommandLineArgs::specify_command_line_flag("--linearised_flux");
 
  // Name of output directory
  CommandLineArgs::specify_command_line_flag(
@@ -1339,12 +1388,23 @@ int main(int argc, char **argv)
   "--t_switch_off_kick",
   &Global_Parameters::T_switch_off_pressure_during_time_dependent_run);
      
+ // film pinned at zero (otherwise no flux/symmetry)
+ CommandLineArgs::specify_command_line_flag("--pin_h_lubri_at_zero");
+
  // Parse command line
  CommandLineArgs::parse_and_assign(); 
  
  // Doc what has actually been specified on the command line
  CommandLineArgs::doc_specified_flags();
  
+ // Linearised validation?    hierher rename linearised_flux
+ if (CommandLineArgs::command_line_flag_has_been_set
+     ("--linearised_flux"))
+  {
+   Global_Parameters::Linearised_flux=true;
+  }
+ 
+   
  // Set the non-dimensional thickness 
  Global_Parameters::H_beam=0.001; 
  
@@ -1352,16 +1412,11 @@ int main(int argc, char **argv)
  MuensterLubriBeamProblem problem(n_element);
 
 
+ 
  // Validate lubrication theory?
  //-----------------------------
  if (CommandLineArgs::command_line_flag_has_been_set("--validate"))
   {
-   // Linearised validation?    
-   if (CommandLineArgs::command_line_flag_has_been_set
-       ("--linearised_validation"))
-    {
-     Global_Parameters::Linearised_validation=true;
-    }
    problem.validate_lubri();
    exit(0);
   }
