@@ -23,7 +23,6 @@
 //LIC// The authors may be contacted at oomph-lib@maths.man.ac.uk.
 //LIC// 
 //LIC//====================================================================
-//Driver function for a simple beam proble
 
 //OOMPH-LIB includes
 #include "generic.h"
@@ -196,7 +195,7 @@ public:
  /// at node n
  inline unsigned required_nvalue(const unsigned& n) const
   {
-   return 2; // Initial_Nvalue;
+   return 2; 
   }
 
  
@@ -328,8 +327,7 @@ public:
 
      // hierher
      double (*Manufactured_soln_fct_pt)(const double& t, const double& x);
-     Manufactured_soln_fct_pt=
-      &Global_Parameters::h_lubri_manufactured;
+     Manufactured_soln_fct_pt=&Global_Parameters::h_lubri_manufactured;
 
       
      // Manufactured solution
@@ -463,11 +461,12 @@ public:
                   const Vector<double>& N,
                   Vector<double>& load)
   {
-   // Get external pressure
+   // Get external pressure -- this is the only thing we have in the
+   // original beam element. 
    Load_vector_fct_pt(xi, x, N, load);
    
-   // Add lubri traction
-   //-------------------
+   // Now add lubri traction
+   //-----------------------
    
    // Set the number of lagrangian coordinates
    const unsigned n_lagrangian = Undeformed_beam_pt->nlagrangian();
@@ -552,7 +551,6 @@ public:
      // Premultiply the weights and the Jacobian
      double W = w * J;
      
-     
      // Sum 'em
      double h_lubri=0.0;
      for (unsigned l = 0; l < n_node; l++)
@@ -573,11 +571,14 @@ public:
 
 protected:
 
+ 
  /// hierher 
  void fill_in_contribution_to_residuals_lubri(Vector<double>& residuals)
   {
 
-   // hierher
+   // Version in base class provides this capability; haven't bothered
+   // to reimplement it here.
+   
    // // Set up the initial conditions, if an IC pointer has been set
    // if (Solid_ic_pt != 0)
    // {
@@ -596,7 +597,6 @@ protected:
    
    // Integer to store the local equation number
    int local_eqn = 0;
-   
    
    // Set up memory for the shape functions:
    
@@ -650,7 +650,8 @@ protected:
          dh_lubri_dxi+=nodal_h_lubri(l, k)*dpsidxi(l,k,0);
 
          // curvature of free surface, taking substrate (beam) curvature into
-         // account. Simplified: (i) linear (ii) ignore horizontal beam displacement!
+         // account. Simplified: (i) linear (ii) ignore horizontal
+         // beam displacement!
          curv+=(nodal_h_lubri(l, k)+raw_nodal_position_gen(l,k,1))*
           d2psidxi(l,k,0);
 
@@ -879,20 +880,22 @@ public:
    file.close();
 
    // Sum up energies and fluid volume
-   unsigned nel=mesh_pt()->nelement();
    double kinetic_energy=0.0;
    double strain_energy=0.0;
    double v_lubri=0.0;
+   unsigned nel=mesh_pt()->nelement();
    for (unsigned e=0;e<nel;e++)
     {
      HermiteLubriBeamElement* el_pt=
       dynamic_cast<HermiteLubriBeamElement*>(
        mesh_pt()->element_pt(e));
+     
      double el_strain_energy=0.0;
      double el_kin_energy=0.0;
      el_pt->get_energy(el_strain_energy,el_kin_energy);
      strain_energy+=el_strain_energy;
      kinetic_energy+=el_kin_energy;
+     
      double el_v_lubri=0.0;
      el_pt->get_fluid_volume(el_v_lubri);
      v_lubri+=el_v_lubri;
@@ -1048,7 +1051,8 @@ MuensterLubriBeamProblem::MuensterLubriBeamProblem(const unsigned &n_elem)
  if (n_nod%2!=1)
   {
    cout << "Warning: Even number of nodes " << n_nod << std::endl;
-   cout << "Comparison with exact solution will be misleading..." << std::endl;
+   cout << "Comparison with exact solution will be misleading..."
+        << std::endl;
   }
  Doc_node_pt=mesh_pt()->node_pt((n_nod+1)/2-1);
  
@@ -1137,6 +1141,7 @@ void MuensterLubriBeamProblem::parameter_study()
 
     // Ha! there's a zero row; which dofs is it associated with?
     // describe_dofs();
+    
     // exit(0);
     
     // Solve the system
@@ -1410,8 +1415,6 @@ int main(int argc, char **argv)
  
  // Construst the problem
  MuensterLubriBeamProblem problem(n_element);
-
-
  
  // Validate lubrication theory?
  //-----------------------------

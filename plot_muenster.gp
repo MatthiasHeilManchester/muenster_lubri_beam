@@ -11,7 +11,15 @@ if (exist("title")){
 }
 
 do for [i=0:nstep]{
- if (exist("png")){if (exist("png")){set terminal png enhanced crop}; set output sprintf('beam%05d.png',i)}
+ if (exist("png")){
+ if ( exist("suppress_film")){
+ set terminal png enhanced crop; set output sprintf('beam%05d.png',i)
+}
+else{
+set terminal png enhanced crop; set output sprintf('beam_with_film%05d.png',i)
+}
+}
+
 
  # Extract time from column 2 of trace file 
  system_command="awk -v step=".i." '\{if ($1==step)\{printf(\"%10.7g\", $2)\}\}' trace_beam.dat" #"echo ".i
@@ -29,12 +37,17 @@ do for [i=0:nstep]{
 if ( exist("suppress_film")){
    plot "beam".i.".dat" u 1:2 w lines lw 2 lc "black" title "beam".i.""}
 if (!exist("suppress_film")){  
-   plot "beam".i.".dat" u 1:2 w lines lw 2 lc "black" title "beam".i."" , "beam".i.".dat" u 1:3 w lines lw 2 lc "blue" title "film".i.""}
+   plot "beam".i.".dat" u 1:2 w lines lw 2 lc "black" title "beam".i."" , "beam".i.".dat" u 1:3 w lines lw 2 lc "blue" title "film".i."";
+   replot "beam".i.".dat" u 1:2:3 with filledcurves lt rgb "cyan" notitle}
  pause 0.005
 
+if ( exist("suppress_film")){
  if (exist("png")){set terminal pdf enhanced crop; set output sprintf('beam%05d.pdf',i);  replot}
  if (exist("png")){set terminal pdf enhanced crop; set output sprintf('beam_no_padded_number%i.pdf',i);  replot}
-
+} else{
+ if (exist("png")){set terminal pdf enhanced crop; set output sprintf('beam_with_film%05d.pdf',i);  replot}
+ if (exist("png")){set terminal pdf enhanced crop; set output sprintf('beam_with_film_no_padded_number%i.pdf',i);  replot}
+}
 
 }
 

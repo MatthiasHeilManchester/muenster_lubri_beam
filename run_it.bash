@@ -37,7 +37,7 @@ full_path_to_run_dir=$PWD
 echo " " 
 echo "----------------------------------------------------------" 
 echo " "
-reslt_dir=RESLT_KICK_NO_FSI
+reslt_dir=RESLT_KICK_ONE_WAY_FSI
 echo "Doing "$reslt_dir
 mkdir $reslt_dir
 ./muenster_lubri_beam --ntstep 100 --t_max 10.0 --t_switch_off_kick 2.0 --p_ext_kick 1.0e-5 --q_fsi_target 0.0 --dir_name $reslt_dir > $reslt_dir/OUTPUT 
@@ -48,9 +48,10 @@ nstep=`find . -name 'beam*.dat' | wc -w `
 let nstep=$nstep-1
 
 if [ $make_movie -eq 1 ]; then
-    gnuplot -p -e "nstep=$nstep; png=1; suppress_film=1; title=\"no FSI; kick\"" ../plot_muenster.gp
-    ffmpeg -hide_banner -loglevel error -framerate 5 -pattern_type glob -i 'beam*.png' -c:v ffv1 beam.avi
-    echo "Movie in "$PWD"/beam.avi"
+    gnuplot -p -e "nstep=$nstep; png=1; suppress_film=1; title=\"one-way FSI; kick\"" ../plot_muenster.gp
+    gnuplot -p -e "nstep=$nstep; png=1; title=\"one-way FSI; kick\"" ../plot_muenster.gp
+    #ffmpeg -hide_banner -loglevel error -framerate 5 -pattern_type glob -i 'beam*.png' -c:v ffv1 beam.avi
+    #echo "Movie in "$PWD"/beam.avi"
 else
     gnuplot -p -e "nstep=$nstep; suppress_film=1; title=\"no FSI; kick\"" ../plot_muenster.gp
 fi
