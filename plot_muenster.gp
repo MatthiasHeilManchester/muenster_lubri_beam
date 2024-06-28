@@ -35,9 +35,9 @@ set terminal png enhanced crop; set output sprintf('beam_with_film%05d.png',i)
 
  set title "time = ".time."\npre-stress = ".sigma."\n pressure = ".pressure
 if ( exist("suppress_film")){
-   plot "beam".i.".dat" u 1:2 w lines lw 2 lc "black" title "beam".i.""}
+   plot "beam".i.".dat" u 1:2 w lines lw 4 lc "black" title "beam".i.""}
 if (!exist("suppress_film")){  
-   plot "beam".i.".dat" u 1:2 w lines lw 2 lc "black" title "beam".i."" , "beam".i.".dat" u 1:3 w lines lw 2 lc "blue" title "film".i."";
+   plot "beam".i.".dat" u 1:2 w lines lw 4 lc "black" title "beam".i."" , "beam".i.".dat" u 1:3 w lines lw 2 lc "blue" title "film".i."";
    replot "beam".i.".dat" u 1:2:3 with filledcurves lt rgb "cyan" notitle}
  pause 0.005
 
