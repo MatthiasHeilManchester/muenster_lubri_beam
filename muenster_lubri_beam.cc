@@ -92,13 +92,22 @@ namespace Global_Parameters
  // Runtime parameters
  //-------------------
 
- // Output directory
+ /// Output directory
  std::string Dir_name="RESLT";
 
- // Number of timesteps
+ /// Number of steady steps
+ unsigned Nstep_steady=10;
+
+ /// Max. pressure for steady solve
+ double P_ext_max=-1.0e-6;
+
+ /// Initial postive pre-stress
+ double Sigma0_initial=0.005;
+ 
+ /// Number of timesteps
  unsigned Ntstep=1000;
 
- // Max. time for timestepping
+ /// Max. time for timestepping
  double T_max=1.0;
 
  
@@ -107,9 +116,7 @@ namespace Global_Parameters
  //-------------------------------------------------
 
  /// Validate solution of linearised equations?
- bool Linearised_flux=false;
-
- // hierher unify this with initial film profile
+ bool Use_linearised_flux=false;
  
  /// Mean film thickness for manufactured solution
  double H_lubri_mean_manufactured=0.1;
@@ -134,7 +141,7 @@ namespace Global_Parameters
  {
   double source=0.0;
 
-  if (Global_Parameters::Linearised_flux)
+  if (Use_linearised_flux)
    {
     source = 0.2e1 * H_lubri_hat_manufactured * cos(0.6283185308e1 *
     x) * t * exp(-t / T_lubri_manufactured) - H_lubri_hat_manufactured
@@ -167,8 +174,6 @@ namespace Global_Parameters
 } // end of namespace
 
 
-// hierher
-
 
 /////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////
@@ -176,7 +181,7 @@ namespace Global_Parameters
 
 
 //=====================================================================
-/// Upgraded Hermite Beam Element to incorporate surface tension driven
+/// Upgraded Hermite Beam Element incorporates surface tension driven
 /// thin film flow
 //=====================================================================
 class HermiteLubriBeamElement : public virtual HermiteBeamElement
@@ -186,12 +191,13 @@ public:
  
  /// Constructor: 
  HermiteLubriBeamElement() :
-  Q_pt(0), Scaled_inverse_capillary_pt(0), Source_fct_pt(0)
+  Q_pt(0), Scaled_inverse_capillary_pt(0), Source_fct_pt(0),
+  Manufactured_soln_fct_pt(0), Use_linearised_flux(false)
   {
   }
 
 
- ///  Required  # of `values' (pinned or dofs)
+ ///  Required  # of `values' (pinned or actual dofs)
  /// at node n
  inline unsigned required_nvalue(const unsigned& n) const
   {
@@ -206,7 +212,7 @@ public:
   }
  
  /// Film thickness dof (local node j, type k) at previous time level t
- /// (t==: present)
+ /// (t=0: present)
  double nodal_h_lubri(const unsigned& t, const unsigned& j, 
                       const unsigned& k) const
   {
@@ -214,7 +220,7 @@ public:
   }
  
  
- /// Film thickness at s
+ /// Film thickness at local coordinate s
  double interpolated_h_lubri(const Vector<double>& s)
   {
    // Initialise storage h_lubri
@@ -241,6 +247,7 @@ public:
    
    return h_lubri;
   }
+
  
  /// Overwrite otput function
  void output(std::ostream& outfile, const unsigned& n_plot)
@@ -313,7 +320,7 @@ public:
           d2psidxi(l,k,0);
 
          // Number of timsteps (past & present)
-         const unsigned n_time =node_pt(l)->time_stepper_pt()->ntstorage();
+         unsigned n_time =node_pt(l)->time_stepper_pt()->ntstorage();
          
          // Add the contributions to the time derivative
          for (unsigned t = 0; t < n_time; t++)
@@ -323,12 +330,6 @@ public:
           }
         }
       }
-
-
-     // hierher
-     double (*Manufactured_soln_fct_pt)(const double& t, const double& x);
-     Manufactured_soln_fct_pt=&Global_Parameters::h_lubri_manufactured;
-
       
      // Manufactured solution
      double t=node_pt(0)->time_stepper_pt()->time_pt()->time(); 
@@ -433,26 +434,67 @@ public:
   }
 
 
+ /// Switch on linear flux (for validation)
+ void enable_use_linearised_flux()
+  {
+   Use_linearised_flux=true;
+  }
+ 
+ /// Switch off linear flux
+ void disable_use_linearised_flux()
+  {
+   Use_linearised_flux=false;
+  }
+
+
+ /// Function pointer to manufactured solution
+ typedef double (*ManufacturedSolnFctPt)(const double& t, const double& x);
+ 
+ /// Pointer to source function (const version)
+ ManufacturedSolnFctPt manufactured_soln_fct_pt() const
+  {
+   return Manufactured_soln_fct_pt;
+  }
+
+ /// Pointer to source function (read/write)
+ ManufacturedSolnFctPt& manufactured_soln_fct_pt()
+  {
+   return Manufactured_soln_fct_pt;
+  }
+  
+ /// Manufactured solutionL h(t,x)
+ double manufactured_soln_e(const double& t, const double& x) const
+  {
+   if (Manufactured_soln_fct_pt==0)
+    {
+     return 0.0;
+    }
+   return Manufactured_soln_fct_pt(t,x);
+  }
+
+
  
  
- /// hierher
+ /// Fill in contribution to residuals: Combine the two single
+ /// physics ones.
  void fill_in_contribution_to_residuals(Vector<double>& residuals)
   {
    fill_in_contribution_to_residuals_beam(residuals);
    fill_in_contribution_to_residuals_lubri(residuals);
   }
 
- /// Get the Jacobian and residuals. hierher overloaded yet againi
+ /// Get the Jacobian and residuals. Overwrite the version in
+ /// the beam class and reinstate brute-force finite differencing
  virtual void fill_in_contribution_to_jacobian(Vector<double>& residuals,
                                                DenseMatrix<double>& jacobian)
   {
-   // Call FD version in base class
+   // Call FD version from base class
    SolidFiniteElement::fill_in_contribution_to_jacobian(residuals, jacobian);
   }
 
  
  /// Overloaded version of the load vector function to incorporate lubrication
- /// pressure. : Pass number of integration point,
+ /// pressure: Generic interface; pass number of integration point,
  /// Lagr. and Eulerian coordinate and normal vector and return the load
  /// vector.
  void load_vector(const unsigned& ipt,
@@ -461,9 +503,10 @@ public:
                   const Vector<double>& N,
                   Vector<double>& load)
   {
-   // Get external pressure -- this is the only thing we have in the
-   // original beam element. 
-   Load_vector_fct_pt(xi, x, N, load);
+   
+   // Call the version from the underlying beam element; this gets
+   // the external pressure
+   HermiteBeamElement::load_vector(ipt,xi,x,N,load);
    
    // Now add lubri traction
    //-----------------------
@@ -496,7 +539,7 @@ public:
      // Loop over dof types
      for (unsigned k = 0; k < n_position_type; k++)
       {
-       // curvature of free surface, taking substrate (beam) curvature into
+       // Curvature of free surface, taking substrate (beam) curvature into
        // account. All computed using (i) linearity (ii) ignoring
        // horizontal beam displacements (and stretching of beam!).
        curv+=(nodal_h_lubri(l, k)+raw_nodal_position_gen(l,k,1))*
@@ -511,7 +554,7 @@ public:
    
   }
 
- /// Volume (per unit depgth) of fluid in the film
+ /// Volume (per unit depth) of fluid in the film
  void get_fluid_volume(double& v_fluid)
   {
    // Initialise
@@ -572,7 +615,7 @@ public:
 protected:
 
  
- /// hierher 
+ /// Fill in contribution to residuals arising from lubrication theory
  void fill_in_contribution_to_residuals_lubri(Vector<double>& residuals)
   {
 
@@ -617,17 +660,18 @@ protected:
    // Cache inverse capillary number
    double inverse_capillary=scaled_inverse_capillary();
 
+   // Get continuous time for evaluation of source function
    double t=node_pt(0)->time_stepper_pt()->time_pt()->time();
    
    // Loop over the integration points
-    for (unsigned ipt = 0; ipt < n_intpt; ipt++)
+   for (unsigned ipt = 0; ipt < n_intpt; ipt++)
     {
-      // Get the integral weight
-      double w = integral_pt()->weight(ipt);
-
-      // Call the derivatives of the shape functions w.r.t. Lagrangian coords
-      double J = d2shape_lagrangian_at_knot(ipt, psi, dpsidxi, d2psidxi);
-
+     // Get the integral weight
+     double w = integral_pt()->weight(ipt);
+     
+     // Call the derivatives of the shape functions w.r.t. Lagrangian coords
+     double J = d2shape_lagrangian_at_knot(ipt, psi, dpsidxi, d2psidxi);
+     
      // Initialise
      double h_lubri=0.0;
      double dh_lubri_dxi=0.0;
@@ -642,21 +686,21 @@ protected:
        for (unsigned k = 0; k < n_position_type; k++)
         {
          x+=raw_dnodal_position_gen_dt(0, l, k, 0) * psi(l, k);
-
+         
          // filn thickness
          h_lubri+=nodal_h_lubri(l, k) * psi(l, k);
          
          // slope 
          dh_lubri_dxi+=nodal_h_lubri(l, k)*dpsidxi(l,k,0);
-
-         // curvature of free surface, taking substrate (beam) curvature into
+         
+         // Curvature of free surface, taking substrate (beam) curvature into
          // account. Simplified: (i) linear (ii) ignore horizontal
          // beam displacement!
          curv+=(nodal_h_lubri(l, k)+raw_nodal_position_gen(l,k,1))*
           d2psidxi(l,k,0);
-
+         
          // Number of timsteps (past & present)
-         const unsigned n_time =node_pt(l)->time_stepper_pt()->ntstorage();
+         unsigned n_time =node_pt(l)->time_stepper_pt()->ntstorage();
          
          // Add the contributions to the time derivative
          for (unsigned t = 0; t < n_time; t++)
@@ -666,14 +710,12 @@ protected:
           }
         }
       }
-
-
-     // Evaluate source function hierher pointer
+          
+     // Evaluate source function 
      double lubri_source=source(t,x);
-
+     
      // Premultiply the weights and the Jacobian
      double W = w * J;
-     
      
      // Loop over nodes
      for (unsigned j=0;j<n_node;j++)
@@ -685,8 +727,7 @@ protected:
          // If it's not a boundary condition
          if (local_eqn >= 0)
           {
-           // hierher local bool!
-           if (Global_Parameters::Linearised_flux)
+           if (Use_linearised_flux)
             {
              residuals[local_eqn] +=
               ((dh_dt-lubri_source)*psi(j,k)+inverse_capillary*curv*
@@ -720,8 +761,14 @@ private:
  double* Scaled_inverse_capillary_pt;
 
  /// Pointer to source function
- double(*Source_fct_pt)(const double& t, const double& x);
+ LubriSourceFctPt Source_fct_pt;
  
+ /// Pointer to manufactured solution (for validation)
+ ManufacturedSolnFctPt Manufactured_soln_fct_pt;
+
+ /// Use linearised flux (mainly for validatino)
+ bool Use_linearised_flux;
+      
 };
 
 
@@ -749,7 +796,8 @@ public:
  /// Validate lubrication theory
  void validate_lubri();
 
- /// Return pointer to the mesh
+ /// Return pointer to the mesh (overloaded to return the
+ /// actual Mesh type).
  OneDLagrangianMesh<HermiteLubriBeamElement>* mesh_pt() 
   {return dynamic_cast<OneDLagrangianMesh<HermiteLubriBeamElement>*>
     (Problem::mesh_pt());}
@@ -760,8 +808,7 @@ public:
  /// No actions need to be performed before a solve
  void actions_before_newton_solve() {}
 
-
- // Pin lubri (and reassign equation numbers)
+ /// Pin lubri dofs (and reassign equation numbers)
  void pin_lubri()
   {
    unsigned nnod=Problem::mesh_pt()->nnode();
@@ -774,7 +821,8 @@ public:
               << assign_eqn_numbers() << std::endl;
   }
 
- // Unpin lubri dofs (and reassign equation numbers)
+ /// Unpin lubri dofs (and reassign equation numbers)
+ /// Boolean decides what type of BCs are to be applied
  void unpin_lubri(const bool& no_flux_bc)
   {
    unsigned nnod=Problem::mesh_pt()->nnode();
@@ -783,8 +831,8 @@ public:
      mesh_pt()->node_pt(j)->unpin(0);
      mesh_pt()->node_pt(j)->unpin(1);
     }
-
-   // Now flux; height adjusts
+   
+   // No flux; height adjusts
    if (no_flux_bc)
     {
      mesh_pt()->boundary_node_pt(0,0)->pin(1);
@@ -802,7 +850,9 @@ public:
   }
  
 
- // hierher reconcile with manufactured solution
+ /// Set initial film profile: mean thickness h_mean
+ /// perturbed by a cos (or sin) profile with amplitude
+ /// h_amplitude
  void set_initial_h_lubri(const double& h_mean,
                           const double& h_amplitude,
                           const bool& use_cos)
@@ -813,13 +863,13 @@ public:
    double length=1.0;
    unsigned nel=mesh_pt()->nelement();
    double dx_ds=(length/double(nel))/(s_max-s_min);
-
+   
    // visit nodes
    unsigned nnod=Problem::mesh_pt()->nnode();
    for (unsigned j=0;j<nnod;j++)
     {
      double x=double(j)/double(nnod-1);
-
+     
      double h=0.0;
      if (use_cos)
       {
@@ -829,7 +879,7 @@ public:
       {
        h=h_mean+h_amplitude*sin(MathematicalConstants::Pi*x);
       }
-        
+     
      // Value
      mesh_pt()->node_pt(j)->set_value(0,h);
      
@@ -849,18 +899,8 @@ public:
      double dh_ds=dh_dx*dx_ds;
      mesh_pt()->node_pt(j)->set_value(1,dh_ds);
     }
-
-// hierher get rid of this 
-
-   // Impose height manually
-   if (!use_cos)
-    {
-     mesh_pt()->boundary_node_pt(0,0)->set_value(0,0.0); // hierher h_mean
-     mesh_pt()->boundary_node_pt(1,0)->set_value(0,0.0);
-    }
- 
   }
-
+ 
 
  /// Output stuff
  void doc_solution()
@@ -912,9 +952,9 @@ public:
     << kinetic_energy <<" " // 7
     << strain_energy <<" "  // 8
     << v_lubri << " "   // 9
-    << Global_Parameters::h_lubri_manufactured(time_pt()->time(),
-                                               Doc_node_pt->x(0))
-    << " " // 10
+    << Global_Parameters::h_lubri_manufactured(
+     time_pt()->time(),
+     Doc_node_pt->x(0)) << " " // 10
     << std::endl;
    
    // Bump
@@ -984,19 +1024,9 @@ MuensterLubriBeamProblem::MuensterLubriBeamProblem(const unsigned &n_elem)
    // Clamp
    mesh_pt()->boundary_node_pt(b,0)->pin_position(1,1);
 
-
-
-   // hierher global parameter
-   bool pin_lubri=false;
-   if (pin_lubri)
-    {
-     mesh_pt()->boundary_node_pt(b,0)->pin(0);
-    }
-   // Symmetry/no flux:
-   else
-    {
-     mesh_pt()->boundary_node_pt(b,0)->pin(1);
-    }
+   // For now apply symmetry/no flux conditions for lubrication theory
+   // hierher add to talk
+   mesh_pt()->boundary_node_pt(b,0)->pin(1);
   }
 
 
@@ -1034,19 +1064,28 @@ MuensterLubriBeamProblem::MuensterLubriBeamProblem(const unsigned &n_elem)
    elem_pt->scaled_inverse_capillary_pt()=
     &Global_Parameters::Scaled_inverse_capillary_number;
 
-   // Source function for validation
+   // Source function and manufactured solution for validation
    if (CommandLineArgs::command_line_flag_has_been_set("--validate"))
     {
      elem_pt->source_fct_pt()=
       &Global_Parameters::source_manufactured_solution;
+     elem_pt->manufactured_soln_fct_pt()=
+      &Global_Parameters::h_lubri_manufactured;
+     if (Global_Parameters::Use_linearised_flux)
+      {
+       elem_pt->enable_use_linearised_flux();
+      }
+     else
+      {
+       elem_pt->disable_use_linearised_flux();
+      }
     }
    
   } // end of loop over elements
 
  // Choose node at which displacement is documented (halfway along -- provided
  // we have an odd number of nodes; complain if this is not the
- // case because the comparison with the exact solution will be wrong 
- // otherwise!)
+ // case)
  unsigned n_nod=mesh_pt()->nnode();
  if (n_nod%2!=1)
   {
@@ -1074,16 +1113,13 @@ MuensterLubriBeamProblem::MuensterLubriBeamProblem(const unsigned &n_elem)
 //=========================================================================
 void MuensterLubriBeamProblem::parameter_study()
 {
- 
-  
+   
  // Set output directory -- this function checks if the output
  // directory exists and issues a warning if it doesn't.
  Doc_info.set_directory(Global_Parameters::Dir_name);
  
  // Open a trace file
  Trace_file.open(Global_Parameters::Dir_name+"/trace_beam.dat");
-
-
 
  // Switch linear solver in total desperation
  // linear_solver_pt()=new FD_LU;
@@ -1100,11 +1136,14 @@ void MuensterLubriBeamProblem::parameter_study()
   pin_lubri();
   
   // Parameters for Inflation stage:
-  double pext_increment = -1.0e-7; 
+  double pext_increment = Global_Parameters::P_ext_max/
+   double(Global_Parameters::Nstep_steady); // -1.0e-7; // hierher read in p_ext_max
+
+  // Initial pressure
   Global_Parameters::P_ext = 0.0 - pext_increment;
   
   // Set the 2nd Piola Kirchhoff prestress (tensile)
-  Global_Parameters::Sigma0=0.005; 
+  Global_Parameters::Sigma0=Global_Parameters::Sigma0_initial; // 0.005;  // hierher read in sigma0_max
 
   // Switch off FSI
   Global_Parameters::Q_fsi=0.0;
@@ -1116,8 +1155,7 @@ void MuensterLubriBeamProblem::parameter_study()
   doc_solution();
   
   // Loop over parameter increments
-  unsigned nstep=10;
-  for(unsigned i=1;i<=nstep;i++)
+  for(unsigned i=1;i<=Global_Parameters::Nstep_steady;i++)
    {
     // Increment pressure
     Global_Parameters::P_ext += pext_increment;
@@ -1157,12 +1195,11 @@ void MuensterLubriBeamProblem::parameter_study()
  // STAGE 2: CHANGE SIGN OF PRESTRESS
  //----------------------------------
  {
-  unsigned nstep=10;
   double d_sigma=
-   2.0*Global_Parameters::Sigma0/double(nstep-1);
+   2.0*Global_Parameters::Sigma0/double(Global_Parameters::Nstep_steady-1);
   
   // Loop over parameter increments
-  for(unsigned i=1;i<nstep;i++)
+  for(unsigned i=1;i<Global_Parameters::Nstep_steady;i++)
    {
     // Decrement pre-stress
     Global_Parameters::Sigma0-=d_sigma;
@@ -1186,9 +1223,9 @@ void MuensterLubriBeamProblem::parameter_study()
  //---------------------------------
  {
   // Loop over parameter increments
-  unsigned nstep=10;
-  double pext_increment=Global_Parameters::P_ext/double(nstep);
-  for(unsigned i=1;i<=nstep;i++)
+  double pext_increment=Global_Parameters::P_ext/
+   double(Global_Parameters::Nstep_steady);
+  for(unsigned i=1;i<=Global_Parameters::Nstep_steady;i++)
    {
     // Increment pressure
     Global_Parameters::P_ext -= pext_increment;
@@ -1216,7 +1253,6 @@ void MuensterLubriBeamProblem::parameter_study()
   }
 
  
- 
  // STAGE 4: TIMESTEP THE THING WITH FSI
  //-------------------------------------
  {
@@ -1232,7 +1268,7 @@ void MuensterLubriBeamProblem::parameter_study()
   Global_Parameters::P_ext=
    Global_Parameters::P_ext_during_time_dependent_run; 
     
-  // Set initial profile // hierher unify with validation solution
+  // Set initial profile 
   double h_mean=0.1;
   double h_amplitude=-0.05;
   bool use_cos=true;
@@ -1253,7 +1289,7 @@ void MuensterLubriBeamProblem::parameter_study()
   doc_solution();
   
   // Assign impulsive start
-  assign_initial_values_impulsive(dt); // hierher try bypassing
+  assign_initial_values_impulsive(dt); 
   for (unsigned i=0;i<Global_Parameters::Ntstep;i++)
    {
     // Solve
@@ -1300,7 +1336,6 @@ void MuensterLubriBeamProblem::validate_lubri()
  
  // Switch off FSI
  Global_Parameters::Q_fsi=0.0;
-
  
  // Set output directory -- this function checks if the output
  // directory exists and issues a warning if it doesn't.
@@ -1326,7 +1361,7 @@ void MuensterLubriBeamProblem::validate_lubri()
  doc_solution();
  
  // Assign impulsive start
- assign_initial_values_impulsive(dt); // hierher try bypassing
+ assign_initial_values_impulsive(dt); 
  for (unsigned i=0;i<Global_Parameters::Ntstep;i++)
   {
    // Solve
@@ -1366,6 +1401,10 @@ int main(int argc, char **argv)
  CommandLineArgs::specify_command_line_flag(
   "--nelement",&n_element);
 
+ /// Initial postive pre-stress
+ CommandLineArgs::specify_command_line_flag(
+  "--sigma0_initial",&Global_Parameters::Sigma0_initial);
+ 
  // Number of timesteps
  CommandLineArgs::specify_command_line_flag(
   "--ntstep",&Global_Parameters::Ntstep);
@@ -1402,11 +1441,11 @@ int main(int argc, char **argv)
  // Doc what has actually been specified on the command line
  CommandLineArgs::doc_specified_flags();
  
- // Linearised validation?    hierher rename linearised_flux
+ // Linearised validation? 
  if (CommandLineArgs::command_line_flag_has_been_set
      ("--linearised_flux"))
   {
-   Global_Parameters::Linearised_flux=true;
+   Global_Parameters::Use_linearised_flux=true;
   }
  
    

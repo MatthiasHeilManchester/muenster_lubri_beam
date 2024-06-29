@@ -34,132 +34,12 @@ full_path_to_run_dir=$PWD
 
 
 
-# Do real run (one way FSI; pressure kick to check energy conservation; 100 steps up to t=10.0 is OK; 1000 is perfect
-#====================================================================================================================
-echo " " 
-echo "----------------------------------------------------------" 
-echo " "
-reslt_dir=RESLT_KICK_ONE_WAY_FSI
-echo "Doing "$reslt_dir
-mkdir $reslt_dir
-./muenster_lubri_beam --ntstep 100 --t_max 10.0 --t_switch_off_kick 2.0 --p_ext_kick 1.0e-5 --q_fsi_target 0.0 --dir_name $reslt_dir > $reslt_dir/OUTPUT 
-
-# Gnuplot the the thing
-cd $reslt_dir
-nstep=`find . -name 'beam*.dat' | wc -w `
-let nstep=$nstep-1
-
-if [ $make_movie -eq 1 ]; then
-    gnuplot -p -e "nstep=$nstep; png=1; suppress_film=1; title=\"one-way FSI; kick\"" ../plot_muenster.gp
-    gnuplot -p -e "nstep=$nstep; png=1; title=\"one-way FSI; kick\"" ../plot_muenster.gp
-    #ffmpeg -hide_banner -loglevel error -framerate 5 -pattern_type glob -i 'beam*.png' -c:v ffv1 beam.avi
-    #echo "Movie in "$PWD"/beam.avi"
-else
-    gnuplot -p -e "nstep=$nstep; suppress_film=1; title=\"no FSI; kick\"" ../plot_muenster.gp
-fi
-gnuplot -p -e "png=1" ../plot_displ_and_energy.gp
-echo " " 
-echo "----------------------------------------------------------" 
-echo " " 
-
-cd $full_path_to_run_dir
-# exit 0
-
-
-
-# Do real run (with FSI; try q_fsi = 1.0e-8; 1.0e-7; 5.0e-7)
-#===========================================================
-echo " " 
-echo "----------------------------------------------------------" 
-echo " "
-reslt_dir=RESLT_FSI_q1e-8
-echo "Doing "$reslt_dir
-mkdir $reslt_dir
-./muenster_lubri_beam --ntstep 500 --t_max 50.0 --q_fsi_target 1.0e-8 --dir_name $reslt_dir > $reslt_dir/OUTPUT 
-
-# Gnuplot the the thing
-cd $reslt_dir
-nstep=`find . -name 'beam*.dat' | wc -w `
-let nstep=$nstep-1
-if [ $make_movie -eq 1 ]; then
-    gnuplot -p -e "nstep=$nstep; png=1; title=\"full FSI\"" ../plot_muenster.gp
-    ffmpeg -hide_banner -loglevel error -framerate 5 -pattern_type glob -i 'beam*.png' -c:v ffv1 beam.avi
-    echo "Movie in "$PWD"/beam.avi"
-else
-    gnuplot -p -e "nstep=$nstep; title=\"full FSI\"" ../plot_muenster.gp
-fi
-echo " " 
-echo "----------------------------------------------------------" 
-echo " "
-
-cd $full_path_to_run_dir
-#exit 0
-
-
-# Do real run (with FSI; try q_fsi = 1.0e-8; 1.0e-7; 5.0e-7)
-#===========================================================
-echo " " 
-echo "----------------------------------------------------------" 
-echo " "
-reslt_dir=RESLT_FSI_q1e-7
-echo "Doing "$reslt_dir
-mkdir $reslt_dir
-./muenster_lubri_beam --ntstep 500 --t_max 50.0 --q_fsi_target 1.0e-7 --dir_name $reslt_dir > $reslt_dir/OUTPUT 
-
-# Gnuplot the the thing
-cd $reslt_dir
-nstep=`find . -name 'beam*.dat' | wc -w `
-let nstep=$nstep-1
-if [ $make_movie -eq 1 ]; then
-    gnuplot -p -e "nstep=$nstep; png=1; title=\"full FSI\"" ../plot_muenster.gp
-    ffmpeg -hide_banner -loglevel error -framerate 5 -pattern_type glob -i 'beam*.png' -c:v ffv1 beam.avi
-    echo "Movie in "$PWD"/beam.avi"
-else
-    gnuplot -p -e "nstep=$nstep; title=\"full FSI\"" ../plot_muenster.gp
-fi
-echo " " 
-echo "----------------------------------------------------------" 
-echo " "
-
-cd $full_path_to_run_dir
-#exit 0
-
-
-# Do real run (with FSI; try q_fsi = 1.0e-8; 1.0e-7; 5.0e-7)
-#===========================================================
-echo " " 
-echo "----------------------------------------------------------" 
-echo " "
-reslt_dir=RESLT_FSI_q5e-7
-echo "Doing "$reslt_dir
-mkdir $reslt_dir
-./muenster_lubri_beam --ntstep 500 --t_max 50.0 --q_fsi_target 5.0e-7 --dir_name $reslt_dir > $reslt_dir/OUTPUT 
-
-# Gnuplot the the thing
-cd $reslt_dir
-nstep=`find . -name 'beam*.dat' | wc -w `
-let nstep=$nstep-1
-if [ $make_movie -eq 1 ]; then
-    gnuplot -p -e "nstep=$nstep; png=1; title=\"full FSI\"" ../plot_muenster.gp
-    ffmpeg -hide_banner -loglevel error -framerate 5 -pattern_type glob -i 'beam*.png' -c:v ffv1 beam.avi
-    echo "Movie in "$PWD"/beam.avi"
-else
-    gnuplot -p -e "nstep=$nstep; title=\"full FSI\"" ../plot_muenster.gp
-fi
-echo " " 
-echo "----------------------------------------------------------" 
-echo " "
-
-cd $full_path_to_run_dir
-#exit 0
-
-
 # Do real run (steady only)
 #==========================
 reslt_dir=RESLT_STEADY
 echo "Doing "$reslt_dir
 mkdir $reslt_dir
-./muenster_lubri_beam --steady_only --dir_name $reslt_dir > $reslt_dir/OUTPUT 
+./muenster_lubri_beam --steady_only --sigma0_initial 0.01 --dir_name $reslt_dir > $reslt_dir/OUTPUT 
 
 # Gnuplot the the thing
 cd $reslt_dir
@@ -179,8 +59,134 @@ echo " "
 
 
 cd $full_path_to_run_dir
+#exit 0
+
+
+
+# Do real run (one way FSI; pressure kick to check energy conservation; 100 steps up to t=10.0 is OK; 1000 is perfect
+#====================================================================================================================
+echo " " 
+echo "----------------------------------------------------------" 
+echo " "
+reslt_dir=RESLT_KICK_ONE_WAY_FSI
+echo "Doing "$reslt_dir
+mkdir $reslt_dir
+./muenster_lubri_beam --ntstep 100 --t_max 10.0 --t_switch_off_kick 2.0 --p_ext_kick 1.0e-5 --q_fsi_target 0.0 --sigma0_initial 0.01 --dir_name $reslt_dir > $reslt_dir/OUTPUT 
+
+# Gnuplot the the thing
+cd $reslt_dir
+nstep=`find . -name 'beam*.dat' | wc -w `
+let nstep=$nstep-1
+
+if [ $make_movie -eq 1 ]; then
+    gnuplot -p -e "nstep=$nstep; png=1; suppress_film=1; title=\"one-way FSI; kick\"" ../plot_muenster.gp
+    gnuplot -p -e "nstep=$nstep; png=1; title=\"one-way FSI; kick\"" ../plot_muenster.gp
+    ffmpeg -hide_banner -loglevel error -framerate 5 -pattern_type glob -i 'beam*.png' -c:v ffv1 beam.avi
+    echo "Movie in "$PWD"/beam.avi"
+else
+    gnuplot -p -e "nstep=$nstep; suppress_film=1; title=\"no FSI; kick\"" ../plot_muenster.gp
+fi
+gnuplot -p -e "png=1" ../plot_displ_and_energy.gp
+echo " " 
+echo "----------------------------------------------------------" 
+echo " " 
+
+cd $full_path_to_run_dir
+#exit 0
+
+
+
+# Do real run (with FSI)
+#=======================
+echo " " 
+echo "----------------------------------------------------------" 
+echo " "
+reslt_dir=RESLT_FSI_q1e-7
+echo "Doing "$reslt_dir
+mkdir $reslt_dir
+./muenster_lubri_beam --ntstep 500 --t_max 50.0 --q_fsi_target 1.0e-7 --sigma0_initial 0.01 --dir_name $reslt_dir > $reslt_dir/OUTPUT 
+
+# Gnuplot the the thing
+cd $reslt_dir
+nstep=`find . -name 'beam*.dat' | wc -w `
+let nstep=$nstep-1
+if [ $make_movie -eq 1 ]; then
+    gnuplot -p -e "nstep=$nstep; png=1; title=\"full FSI\"" ../plot_muenster.gp
+    ffmpeg -hide_banner -loglevel error -framerate 5 -pattern_type glob -i 'beam*.png' -c:v ffv1 beam.avi
+    echo "Movie in "$PWD"/beam.avi"
+else
+    gnuplot -p -e "nstep=$nstep; title=\"full FSI\"" ../plot_muenster.gp
+fi
+echo " " 
+echo "----------------------------------------------------------" 
+echo " "
+
+cd $full_path_to_run_dir
+#exit 0
+
+
+# Do real run (with FSI)
+#=======================
+echo " " 
+echo "----------------------------------------------------------" 
+echo " "
+reslt_dir=RESLT_FSI_q2e-7
+echo "Doing "$reslt_dir
+mkdir $reslt_dir
+./muenster_lubri_beam --ntstep 500 --t_max 50.0 --q_fsi_target 2.0e-7 --sigma0_initial 0.01 --dir_name $reslt_dir > $reslt_dir/OUTPUT 
+
+# Gnuplot the the thing
+cd $reslt_dir
+nstep=`find . -name 'beam*.dat' | wc -w `
+let nstep=$nstep-1
+if [ $make_movie -eq 1 ]; then
+    gnuplot -p -e "nstep=$nstep; png=1; title=\"full FSI\"" ../plot_muenster.gp
+    ffmpeg -hide_banner -loglevel error -framerate 5 -pattern_type glob -i 'beam*.png' -c:v ffv1 beam.avi
+    echo "Movie in "$PWD"/beam.avi"
+else
+    gnuplot -p -e "nstep=$nstep; title=\"full FSI\"" ../plot_muenster.gp
+fi
+echo " " 
+echo "----------------------------------------------------------" 
+echo " "
+
+cd $full_path_to_run_dir
+#exit 0
+
+
+# Do real run (with FSI)
+#=======================
+echo " " 
+echo "----------------------------------------------------------" 
+echo " "
+reslt_dir=RESLT_FSI_q1e-6
+echo "Doing "$reslt_dir
+mkdir $reslt_dir
+./muenster_lubri_beam --ntstep 500 --t_max 50.0 --q_fsi_target 1.0e-6 --sigma0_initial 0.01 --dir_name $reslt_dir > $reslt_dir/OUTPUT 
+
+# Gnuplot the the thing
+cd $reslt_dir
+nstep=`find . -name 'beam*.dat' | wc -w `
+let nstep=$nstep-1
+if [ $make_movie -eq 1 ]; then
+    gnuplot -p -e "nstep=$nstep; png=1; title=\"full FSI\"" ../plot_muenster.gp
+    ffmpeg -hide_banner -loglevel error -framerate 5 -pattern_type glob -i 'beam*.png' -c:v ffv1 beam.avi
+    echo "Movie in "$PWD"/beam.avi"
+else
+    gnuplot -p -e "nstep=$nstep; title=\"full FSI\"" ../plot_muenster.gp
+fi
+echo " " 
+echo "----------------------------------------------------------" 
+echo " "
+
+cd $full_path_to_run_dir
 exit 0
 
+
+
+#######################################################
+# IGNORE
+#######################################################
 
 # Do real run (zero FSI; pinned film at zero)
 #============================================
