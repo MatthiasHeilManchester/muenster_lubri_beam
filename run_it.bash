@@ -48,7 +48,7 @@ let nstep=$nstep-1
 
 if [ $make_movie -eq 1 ]; then
     gnuplot -p -e "nstep=$nstep; png=1; title=\"steady\"" ../plot_muenster.gp
-    ffmpeg -hide_banner -loglevel error -framerate 5 -pattern_type glob -i 'beam*.png' -c:v ffv1 beam.avi
+    ffmpeg -hide_banner -loglevel error -framerate 5 -pattern_type glob -i 'beam_with_film?????.png' -c:v ffv1 beam.avi
     echo "Movie in "$PWD"/beam.avi"
 else
     gnuplot -p -e "nstep=$nstep; title=\"steady\"" ../plot_muenster.gp
@@ -59,7 +59,7 @@ echo " "
 
 
 cd $full_path_to_run_dir
-#exit 0
+exit 0
 
 
 
